@@ -17,6 +17,9 @@ function everyBranchOnboards(items) {
   return !!split && split.options.every((o) => everyBranchOnboards(o.nodes));
 }
 
+const { multipart } = require("./r1");
+const { lookParts, guestNetworkBody } = require("./model");
+
 const FORMATS = { numbers: "NUMBERS_ONLY", keyboard: "KEYBOARD_FRIENDLY", secure: "MOST_SECURED", words: "DICTIONARY_WORDS" };
 const rows = (j) => (Array.isArray(j) ? j : (j && (j.data || j.content || j.items || j.results)) || []);
 const idOf = (r) => r && (r.id || (r.content && r.content.id) || (r.data && r.data.id) || null);
@@ -270,6 +273,11 @@ class Builder {
       if (d.status) state = `, R1 says ${d.status}` + ((d.statusReasons || []).length ? ": " + d.statusReasons.map((x) => x.statusReason).join("; ") : "");
       if (d.status === "INVALID") this.notes.push(`Workflow ${w.name} was built but R1 reports it INVALID${state.slice(state.indexOf(":"))}`);
     }
+    if (w.look) {
+      this.announce("look and feel", (this.opts.prefix || "") + w.name);
+      await this.api.write("POST", `/workflows/${wfId}/uiConfigurations`, multipart(lookParts(w.look)));
+      if (this.api.apply) await this.pollFor(async () => { const u = await this.api.read("GET", `/workflows/${wfId}/uiConfigurations`); return u && u.welcomeTitle === w.look.welcomeTitle ? u : null; }, "the look and feel", 120);
+    }
     this.log(`  workflow ${w.name}: built (left unpublished${state})`);
     return true;
   }
@@ -338,6 +346,28 @@ class Builder {
       }
       prior = stepId;
     }
+  }
+
+  // Creates a guest network (portal SSID for visitors with a pass) from a guest-network model; optionally puts it on a venue.
+  async buildGuestNetwork(g) {
+    const body = guestNetworkBody(g, this.opts.prefix || "");
+    try {
+      this.announce("Wi-Fi network (guest)", body.name);
+      await this.api.write("POST", "/wifiNetworks", body);
+      let id = "dry-net";
+      if (this.api.apply) {
+        const net = await this.pollFor(async () => rows(await this.api.read("POST", "/wifiNetworks/query", { page: 1, pageSize: 200 })).find((n) => lc(n.name) === lc(body.name)), "the guest network " + body.name);
+        id = net.id; this.record("Wi-Fi network", id, body.name, `/wifiNetworks/${id}`);
+      }
+      if (this.opts.venueId) await this.api.write("PUT", `/venues/${this.opts.venueId}/wifiNetworks/${id}`, { isAllApGroups: true, allApGroupsRadio: "Both" });
+      else this.notes.push(`Guest network ${body.name} is not on any venue yet: choose a venue or activate it in R1.`);
+      this.log(`  guest network ${body.name}: built`);
+    } catch (e) {
+      this.log("FAILED: " + e.message);
+      if (this.api.apply && this.opts.rollback !== false) await this.rollback();
+      throw e;
+    }
+    return { built: [body.name], skipped: this.skipped, reused: this.reused, created: this.ledger, notes: this.notes };
   }
 
   // Creates one certificate template (and its identity group) described by ref = templateRef(...). Reports like buildAll.

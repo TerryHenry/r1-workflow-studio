@@ -13,8 +13,8 @@ const crypto = require("crypto");
 const { convertAll } = require("./convert");
 const { Builder, makeApi } = require("./build");
 const { loadInventory } = require("./inventory");
-const { ACTIONS, fromPlan, validate, toBuildWorkflow, blankWorkflow, createMissing, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef } = require("./model");
-const { importWorkflow, importCertTemplate } = require("./r1import");
+const { ACTIONS, fromPlan, validate, toBuildWorkflow, blankWorkflow, createMissing, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, GUEST_FIELDS, blankGuestNetwork, validateGuestNetwork, LOOK_COLORS, DEFAULT_LOOK, guestFromPlan } = require("./model");
+const { importWorkflow, importCertTemplate, importGuestNetwork } = require("./r1import");
 const { appendCreated } = require("./ledger");
 
 const NAME = /^[\w .()-]{1,80}$/;
@@ -73,11 +73,27 @@ function createUiServer({ client = null, crawl = null, mapping = {}, root = path
     res.calls = lines; res.willCreate = b.willCreate;
     return res;
   }
+  async function runGuest(guest, options, apply) {
+    const i = await getInv(apply);
+    const o = opts(options);
+    const issues = validateGuestNetwork(guest, i, o);
+    const res = { issues, calls: [], willCreate: [], reused: [], notes: [], skipped: [], built: [], created: [] };
+    if (issues.length) return res;
+    const lines = [];
+    const api = makeApi({ client: client || { call: async () => ({}) }, apply, log: (l) => lines.push(l) });
+    const b = new Builder({ api, crawl: { objects: {} }, mapping: {}, opts: { createMissing: true, rollback: true, prefix: o.prefix, venueId: o.venueId, pollMs }, log: (l) => lines.push(l) });
+    try {
+      const r = await b.buildGuestNetwork(guest);
+      Object.assign(res, { built: r.built, skipped: r.skipped, notes: r.notes, created: r.created, reused: r.reused });
+    } catch (e) { res.error = e.message; }
+    res.calls = lines; res.willCreate = b.willCreate;
+    return res;
+  }
   const needClient = () => { if (!client) throw httpError(409, "Not connected to RUCKUS One (started with --offline)."); };
 
   const routes = {
     "GET /api/state": async () => ({
-      schema: ACTIONS, templateFields: TEMPLATE_FIELDS, blankTemplate: blankTemplate(), inventory: await getInv(), live: !!client, hasCloudpath: !!crawl,
+      schema: ACTIONS, templateFields: TEMPLATE_FIELDS, blankTemplate: blankTemplate(), guestFields: GUEST_FIELDS, blankGuest: blankGuestNetwork(), lookColors: LOOK_COLORS, defaultLook: DEFAULT_LOOK, inventory: await getInv(), live: !!client, hasCloudpath: !!crawl,
       cloudpath: await cloudpathModels(), drafts: listDrafts(), blank: blankWorkflow(),
     }),
     "POST /api/refresh": async () => ({ inventory: await getInv(true) }),
@@ -91,6 +107,35 @@ function createUiServer({ client = null, crawl = null, mapping = {}, root = path
       needClient();
       if (!/^[\w-]{1,64}$/.test(String(b.id || ""))) throw httpError(400, "Bad template id.");
       return importCertTemplate(client, b.id);
+    },
+    "POST /api/import/guest": async (b) => {
+      needClient();
+      if (!/^[\w-]{1,64}$/.test(String(b.id || ""))) throw httpError(400, "Bad network id.");
+      return importGuestNetwork(client, b.id);
+    },
+    "POST /api/guest/prefill": async (b) => {
+      const w = crawl && (crawl.workflows || []).find((x) => x.name === b.name);
+      if (!w) throw httpError(404, "That Cloudpath workflow isn't in the crawl.");
+      const r = guestFromPlan(w);
+      if (!r) throw httpError(409, "That Cloudpath workflow has no voucher step.");
+      return r;
+    },
+    "POST /api/guest/validate": async (b) => ({ issues: validateGuestNetwork(b.guest, await getInv(), opts(b.options)) }),
+    "POST /api/guest/preview": async (b) => {
+      const r = await runGuest(b.guest, b.options, false);
+      r.hash = hashOf({ workflow: b.guest, options: b.options });
+      if (!r.issues.length && !r.error && !r.skipped.length) { previews.set(r.hash, Date.now()); if (previews.size > 50) previews.delete(previews.keys().next().value); }
+      return r;
+    },
+    "POST /api/guest/apply": async (b) => {
+      needClient();
+      const h = hashOf({ workflow: b.guest, options: b.options });
+      if (b.hash !== h || !previews.has(h)) throw httpError(409, "Preview this exact guest network first. It has changed since the last preview, or was never previewed.");
+      const r = await runGuest(b.guest, b.options, true);
+      previews.delete(h);
+      if (r.created && r.created.length) appendCreated(root, r.created);
+      await getInv(true);
+      return r;
     },
     "POST /api/template/validate": async (b) => ({ issues: validateTemplate(b.template, await getInv(), opts(b.options)) }),
     "POST /api/template/preview": async (b) => {
@@ -168,7 +213,7 @@ function createUiServer({ client = null, crawl = null, mapping = {}, root = path
       let body = {};
       if (req.method !== "GET") {
         const chunks = []; let size = 0;
-        for await (const c of req) { size += c.length; if (size > 2e6) throw httpError(413, "Too large"); chunks.push(c); }
+        for await (const c of req) { size += c.length; if (size > 12e6) throw httpError(413, "Too large"); chunks.push(c); }
         try { body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"); } catch { throw httpError(400, "Bad JSON"); }
       }
       send(200, await handler(body));

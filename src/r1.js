@@ -29,6 +29,19 @@ function errorText(j) {
   return parts.join("; ") || "";
 }
 
+// A multipart/form-data body. parts: { name: { json: any } | { file: { filename, type, base64 } } }
+function multipart(parts) {
+  return { __multipart: true, parts, toJSON() { return { multipart: Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, v.json !== undefined ? v.json : { file: v.file.filename, type: v.file.type, bytes: Math.round((v.file.base64 || "").length * 0.75) }])) }; } };
+}
+function toFormData(body) {
+  const fd = new FormData();
+  for (const [name, part] of Object.entries(body.parts)) {
+    if (part.json !== undefined) fd.append(name, new Blob([JSON.stringify(part.json)], { type: "application/json" }));
+    else fd.append(name, new Blob([Buffer.from(part.file.base64, "base64")], { type: part.file.type || "application/octet-stream" }), part.file.filename || name);
+  }
+  return fd;
+}
+
 function client(creds = credentials()) {
   const host = HOSTS[creds.region];
   if (!host) throw new Error('Unknown region "' + creds.region + '"');
@@ -45,9 +58,12 @@ function client(creds = credentials()) {
   }
   async function call(method, apiPath, body) {
     if (!token || Date.now() > expires - 60000) await login();
-    const headers = { Authorization: "Bearer " + token, "Content-Type": "application/json", Accept: "application/json" };
+    const headers = { Authorization: "Bearer " + token, Accept: "application/json" };
     if (creds.delegatedTenantId) headers["x-rks-tenantid"] = creds.delegatedTenantId;
-    const res = await fetch(host.api + apiPath, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    let payload;
+    if (body && body.__multipart) payload = toFormData(body);               // the content type (with its boundary) is set by fetch
+    else { headers["Content-Type"] = "application/json"; payload = body === undefined ? undefined : JSON.stringify(body); }
+    const res = await fetch(host.api + apiPath, { method, headers, body: payload });
     const text = await res.text();
     let data; try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
     if (!res.ok) { const detail = errorText(data) || JSON.stringify(data).slice(0, 400);   // unknown error shapes: show the body so the cause is visible
@@ -57,4 +73,4 @@ function client(creds = credentials()) {
   return { call, get: (p) => call("GET", p), query: (p, body = {}) => call("POST", p, body), region: creds.region };
 }
 
-module.exports = { client, credentials };
+module.exports = { client, credentials, multipart };

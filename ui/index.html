@@ -135,7 +135,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4p
   <aside id="left"></aside>
   <section id="canvas" aria-label="Workflow"><div id="zoomwrap"><div class="flow" id="flow"></div></div></section>
   <aside id="right"><div id="rsz" title="Drag to resize"></div>
-    <div class="tabs" role="tablist"><button id="tabStep" role="tab">Step</button><button id="tabProblems" role="tab">Problems</button><button id="tabPreview" role="tab">Preview</button></div>
+    <div class="tabs" role="tablist"><button id="tabStep" role="tab">Step</button><button id="tabLook" role="tab">Look</button><button id="tabProblems" role="tab">Problems</button><button id="tabPreview" role="tab">Preview</button></div>
     <div id="pane"></div>
   </aside>
 </main>
@@ -164,11 +164,29 @@ async function api(path, body, method) {
   return j;
 }
 const clone = (o) => JSON.parse(JSON.stringify(o));
+// For the frequent validate/fix calls: the workflow with image data replaced by its size (the server only needs the size).
+function slimWf(wf) {
+  if (!wf || !wf.look || !wf.look.images || !Object.keys(wf.look.images).length) return wf;
+  const images = {}; for (const [k, v] of Object.entries(wf.look.images)) images[k] = v ? { filename: v.filename, type: v.type, bytes: Math.round((v.base64 || "").length * 0.75) } : v;
+  return { ...wf, look: { ...wf.look, images } };
+}
 const uid = () => "n" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-3);
 const store = { get(k, d) { try { const v = localStorage.getItem("wfe." + k); return v == null ? d : v; } catch { return d; } }, set(k, v) { try { localStorage.setItem("wfe." + k, v); } catch {} } };
 
-const S = { schema: {}, inv: {}, cloudpath: [], drafts: [], wf: null, tpl: null, tplFields: [], blankTpl: null, importNotes: null, source: "", selected: null, issues: [], previewKey: null, preview: null, applied: null, dirty: false, live: false, tab: "step", zoom: 1, fit: true };
+const S = { schema: {}, inv: {}, cloudpath: [], drafts: [], wf: null, obj: null, tplFields: [], blankTpl: null, guestFields: [], blankGuest: null, lookColors: [], defaultLook: null, importNotes: null, source: "", selected: null, issues: [], previewKey: null, preview: null, applied: null, dirty: false, live: false, tab: "step", zoom: 1, fit: true };
 const ICON = { AUP: "📜", DATA_PROMPT: "📝", DISPLAY_MESSAGE: "💬", USER_SELECTION_SPLIT: "⑂", DPSK: "🔑", MAC_REG: "📱", CERT_TEMPLATE: "🎫", PASSPHRASE: "🔐", CAPTIVE_PORTAL: "🌐", LDAP_AUTH_PROVIDER: "🛂", IDP_AUTH_PROVIDER: "🛂", UNSUPPORTED: "⛔" };
+
+/* ---------- form objects: certificate templates and guest networks ---------- */
+const OBJ = {
+  certTemplate: { label: "certificate template", endpoint: "template", key: "template", icon: "🎫", importKind: "template", prefix: "r1t:", fields: () => S.tplFields,
+    made: "A new template is created; existing templates and the certificate authority are not changed.",
+    help: "Change the settings in the form. Use Preview to see exactly what would be created, then Apply. A new identity group with the same name is created for the template, as R1 requires." },
+  guestNetwork: { label: "guest network", endpoint: "guest", key: "guest", icon: "📶", importKind: "guest", prefix: "r1g:", fields: () => S.guestFields,
+    made: "A new guest network is created. Visitors sign in on its portal page with a pass; passes are made by sponsors, the guest API or Visitor Desk. Existing networks are not changed.",
+    help: "Set up the portal visitors see: the terms they accept, how long a session lasts and how many devices a visitor can use. Use Preview to see what would be created, then Apply." },
+};
+const objDef = () => OBJ[S.obj.kind];
+const objApi = (action, extra) => api("/api/" + objDef().endpoint + "/" + action, { [objDef().key]: S.obj, options: options(), ...extra });
 
 /* ---------- model helpers ---------- */
 function eachNode(steps, fn, parent) { steps.forEach((n, i) => { fn(n, steps, i, parent); (n.options || []).forEach((o) => eachNode(o.steps, fn, n)); }); }
@@ -181,8 +199,8 @@ function newNode(type, name) {
 }
 function withNewIds(n) { const c = clone(n); (function re(x) { x.id = uid(); (x.options || []).forEach((o) => { o.id = uid(); o.steps.forEach(re); }); })(c); return c; }
 const options = () => ({ prefix: $("#prefix").value.trim(), venueId: $("#venue").value || undefined });
-const key = () => JSON.stringify(S.tpl ? { template: S.tpl, options: options() } : { workflow: S.wf, options: options() });
-const fullName = () => (options().prefix || "") + (S.tpl ? S.tpl.name : S.wf ? S.wf.name : "");
+const key = () => JSON.stringify(S.obj ? { object: S.obj, options: options() } : { workflow: S.wf, options: options() });
+const fullName = () => (options().prefix || "") + (S.obj ? S.obj.name : S.wf ? S.wf.name : "");
 function nameOf(list, id) { const x = (list || []).find((i) => i.id === id); return x ? x.name : null; }
 const issuesFor = (id) => S.issues.filter((i) => i.nodeId === id);
 const errorCount = () => S.issues.filter((i) => i.level === "error").length;
@@ -202,6 +220,7 @@ function summarize(n) {
     default: return "";
   }
 }
+function lookLine(wf) { const L = wf && wf.look; return L ? `🎨 Look and feel: “${L.welcomeTitle || "(no title)"}”, ${Object.keys(L.images || {}).length} image(s)` : null; }
 function outlineLines(steps, indent = "") {
   const out = [];
   steps.forEach((n) => {
@@ -218,7 +237,7 @@ function histInit() { H.undo = []; H.redo = []; H.last = JSON.stringify(S.wf); }
 function histPush(structural) {
   const cur = JSON.stringify(S.wf); if (cur === H.last) return;
   const now = Date.now();
-  if (structural || now - H.t > 800) { H.undo.push(H.last); if (H.undo.length > 100) H.undo.shift(); }
+  if (structural || now - H.t > 800) { H.undo.push(H.last); if (H.undo.length > 100) H.undo.shift(); while (H.undo.length > 1 && H.undo.reduce((n, x) => n + x.length, 0) > 30e6) H.undo.shift(); }   // images can make snapshots big
   H.t = now; H.redo = []; H.last = cur;
 }
 function restore(str) { S.wf = JSON.parse(str); H.last = str; if (S.selected && !findNode(S.selected)) S.selected = null; S.dirty = true; renderAll(); validate(); }
@@ -229,7 +248,7 @@ function redo() { if (!H.redo.length) return; H.undo.push(JSON.stringify(S.wf));
 function renderAll() { renderHeader(); renderLeft(); renderCanvas(); renderRight(); }
 
 function renderHeader() {
-  const cur0 = S.tpl || S.wf; if ($("#wfName") !== document.activeElement) $("#wfName").value = cur0 ? cur0.name : "";
+  const cur0 = S.obj || S.wf; if ($("#wfName") !== document.activeElement) $("#wfName").value = cur0 ? cur0.name : "";
   const vs = $("#venue"), cur = vs.value;
   vs.replaceChildren(h("option", { value: "" }, "New Wi-Fi networks: no venue"), ...(S.inv.venues || []).map((v) => h("option", { value: v.id, selected: v.id === cur }, "New Wi-Fi networks on: " + v.name)));
   const errors = errorCount(), warns = S.issues.filter((i) => i.level === "warn").length, st = $("#status");
@@ -240,7 +259,7 @@ function renderHeader() {
   $("#btnApply").disabled = !(fresh && S.live);
   $("#btnApply").title = !S.live ? "Not connected to RUCKUS One" : fresh ? "Create this in RUCKUS One" : "Preview this exact workflow first";
   $("#btnPreview").disabled = !cur0; $("#btnSave").disabled = !cur0;
-  $("#btnUndo").disabled = !!S.tpl || !H.undo.length; $("#btnRedo").disabled = !!S.tpl || !H.redo.length;
+  $("#btnUndo").disabled = !!S.obj || !H.undo.length; $("#btnRedo").disabled = !!S.obj || !H.redo.length;
   $("#btnCompact").style.borderColor = document.documentElement.classList.contains("compact") ? "var(--accent)" : "";
   const th = store.get("theme", "auto"); $("#btnTheme").textContent = th === "light" ? "☀" : th === "dark" ? "☾" : "◐";
 }
@@ -248,7 +267,7 @@ function renderHeader() {
 function renderLeft() {
   const L = $("#left"); L.replaceChildren();
   L.append(h("h2", {}, "Start"));
-  L.append(h("div", { class: "list" }, h("button", { onclick: () => openWorkflow(clone(S.blank), "new") }, "＋ New blank workflow"), h("button", { onclick: () => openTemplate(clone(S.blankTpl), "new") }, "＋ New certificate template")));
+  L.append(h("div", { class: "list" }, h("button", { onclick: () => openWorkflow(clone(S.blank), "new") }, "＋ New blank workflow"), h("button", { onclick: () => openObject(clone(S.blankTpl), "new") }, "＋ New certificate template"), h("button", { onclick: () => openObject(clone(S.blankGuest), "new") }, "＋ New guest network")));
   if (S.cloudpath.length) {
     L.append(h("h2", {}, "From Cloudpath"));
     L.append(h("div", { class: "list" }, S.cloudpath.map((w) => h("button", { class: S.source === "cp:" + w.name ? "on" : "", onclick: () => openWorkflow(clone(w), "cp:" + w.name) }, h("span", {}, w.name),
@@ -263,6 +282,9 @@ function renderLeft() {
   L.append(h("h2", {}, "Certificate templates in R1"));
   const tl = S.inv.certTemplates || [];
   L.append(h("div", { class: "list" }, tl.length ? tl.map((x) => h("button", { class: S.source === "r1t:" + x.id ? "on" : "", title: "Opens an editable copy; the original is not changed", onclick: () => importFromR1("template", x.id) }, h("span", {}, x.name))) : h("span", { class: "empty" }, S.live ? "none" : "offline")));
+  L.append(h("h2", {}, "Guest networks in R1"));
+  const gl = (S.inv.networks || []).filter((n) => n.type === "guest");
+  L.append(h("div", { class: "list" }, gl.length ? gl.map((x) => h("button", { class: S.source === "r1g:" + x.id ? "on" : "", title: "Opens an editable copy; the original is not changed", onclick: () => importFromR1("guest", x.id) }, h("span", {}, x.name))) : h("span", { class: "empty" }, S.live ? "none" : "offline")));
   L.append(h("p", { class: "hint" }, "Click one to edit a copy. Saving creates a new object; the original is never changed."));
   L.append(h("p", {}, h("button", { class: "btn small", onclick: refreshInv }, "Refresh from R1")));
 }
@@ -270,7 +292,7 @@ function renderLeft() {
 let drag = null;
 function renderCanvas() {
   const flow = $("#flow"); flow.replaceChildren();
-  if (S.tpl) { flow.append(templateForm()); applyZoom(); return; }
+  if (S.obj) { flow.append(objectForm()); applyZoom(); return; }
   if (!S.wf) { flow.append(h("p", { class: "empty" }, "Open a workflow on the left, or start a blank one.")); applyZoom(); return; }
   flow.append(h("div", { class: "cap" }, "Start"), ...steps(S.wf.steps), h("div", { class: "link arrow" }), h("div", { class: "cap" }, "End"));
   applyZoom();
@@ -324,7 +346,7 @@ function branches(n) {
 function applyZoom() {
   const flow = $("#flow"), wrap = $("#zoomwrap"), canvas = $("#canvas");
   flow.style.transform = "none";
-  if (S.tpl) { wrap.style.width = ""; wrap.style.height = ""; $("#zFit").textContent = "Fit"; return; }
+  if (S.obj) { wrap.style.width = ""; wrap.style.height = ""; $("#zFit").textContent = "Fit"; return; }
   if (S.fit && S.wf) { const w = flow.scrollWidth, hgt = flow.scrollHeight; S.zoom = Math.max(.3, Math.min(1, (canvas.clientWidth - 12) / w, (canvas.clientHeight - 12) / hgt)); }
   flow.style.transform = `scale(${S.zoom})`;
   wrap.style.width = flow.scrollWidth * S.zoom + "px"; wrap.style.height = flow.scrollHeight * S.zoom + "px";
@@ -335,16 +357,18 @@ function setZoom(z) { S.fit = false; S.zoom = Math.max(.3, Math.min(1.6, z)); ap
 /* ---------- right panel ---------- */
 function setTab(t) { S.tab = t; renderRight(); }
 function renderRight() {
-  const tabs = { step: $("#tabStep"), problems: $("#tabProblems"), preview: $("#tabPreview") };
+  const tabs = { step: $("#tabStep"), look: $("#tabLook"), problems: $("#tabProblems"), preview: $("#tabPreview") };
+  tabs.look.style.display = S.obj ? "none" : ""; if (S.obj && S.tab === "look") S.tab = "step";
   tabs.step.textContent = "Step"; tabs.preview.textContent = "Preview";
   const ec = errorCount(), wc = S.issues.length - ec;
   tabs.problems.replaceChildren("Problems", h("span", { class: "count", style: "color:" + (ec ? "var(--bad)" : wc ? "var(--warn)" : "var(--muted)") }, S.issues.length ? "(" + S.issues.length + ")" : ""));
   for (const [k, b] of Object.entries(tabs)) { b.className = S.tab === k ? "on" : ""; b.setAttribute("aria-selected", S.tab === k); }
   const P = $("#pane"); P.replaceChildren();
-  if (!S.wf && !S.tpl) { P.append(h("div", { class: "note" }, "Open a workflow or certificate template from the left, or start a new one. Nothing is sent to RUCKUS One until you preview and apply.")); return; }
+  if (!S.wf && !S.obj) { P.append(h("div", { class: "note" }, "Open a workflow, certificate template or guest network from the left, or start a new one. Nothing is sent to RUCKUS One until you preview and apply.")); return; }
   if (S.tab === "problems") return renderProblems(P);
+  if (S.tab === "look" && S.wf) return renderLook(P);
   if (S.tab === "preview") return renderPreview(P);
-  if (S.tpl) return renderTemplateHelp(P);
+  if (S.obj) return renderObjectHelp(P);
   renderStep(P);
 }
 
@@ -367,6 +391,9 @@ function renderStep(R) {
   if (n.source && n.source.notes && n.source.notes.length) R.append(h("div", { class: "note" }, h("b", {}, "From Cloudpath: "), n.source.notes.join(" ")));
   if (n.type === "UNSUPPORTED") {
     R.append(h("div", { class: "note" }, "Cloudpath step “" + n.name + "” can't be built in R1. Replace it with a step that does something similar, or delete it."));
+    if (n.source && n.source.cloudpathKind === "oob" && S.wf.source && S.wf.source.cloudpath) R.append(h("div", { class: "note" },
+      h("b", {}, "Voucher codes are a guest pass in R1. "), "Build a guest network instead: a Wi-Fi network where visitors enter their pass on a portal page, filled in from this workflow. This workflow's other steps are unaffected.",
+      h("div", { style: "margin-top:6px" }, h("button", { class: "btn small primary", onclick: () => buildGuestFromCloudpath(S.wf.source.cloudpath) }, "Build a guest network instead"))));
     R.append(h("div", { class: "field" }, h("label", {}, "Replace with"), h("select", { onchange: (e) => { if (e.target.value) replaceNode(n.id, e.target.value); } }, h("option", { value: "" }, "Choose a step type…"), Object.entries(S.schema).filter(([k]) => k !== "USER_SELECTION_SPLIT").map(([k, v]) => h("option", { value: k }, v.label)))));
   } else {
     R.append(h("div", { class: "field" }, h("label", {}, "Step name"), h("input", { type: "text", value: n.name, maxlength: 100, oninput: (e) => { n.name = e.target.value; changed(false); } })));
@@ -454,12 +481,63 @@ function issueItems(issues) {
 }
 async function fixMissing(ids) {
   try {
-    const r = await api("/api/fix", { workflow: S.wf, nodeIds: ids });
-    S.wf = r.workflow; S.fixNote = r.changes.map((c) => c.message);
+    const r = await api("/api/fix", { workflow: slimWf(S.wf), nodeIds: ids });
+    S.wf = { ...r.workflow, look: S.wf.look }; S.fixNote = r.changes.map((c) => c.message);
     if (!r.changes.length) S.fixNote = ["Nothing to create: these steps already point at objects that exist."];
     changed(true);
     if (S.tab === "preview") { await doPreview(); } else validate();
   } catch (e) { S.fixNote = ["Could not fix: " + e.message]; renderRight(); }
+}
+
+/* ---------- look and feel ---------- */
+const FONTS = ["Arial", "Helvetica", "Verdana", "Tahoma", "Trebuchet MS", "Georgia", "Times New Roman", "Courier New"];
+const hex6 = (c) => { c = String(c || "#000000"); if (/^#[0-9a-f]{3}$/i.test(c)) c = "#" + [...c.slice(1)].map((x) => x + x).join(""); return /^#[0-9a-f]{6}$/i.test(c) ? c : "#000000"; };
+function renderLook(P) {
+  const wf = S.wf;
+  P.append(h("h2", {}, "Look and feel"), h("p", { class: "hint" }, "How the visitor's pages look: colors, titles, logo. If you leave this off, R1 uses its own defaults."));
+  for (const m of S.importNotes || []) if (/image/.test(m)) P.append(h("div", { class: "note bad" }, m));
+  if (!wf.look) {
+    P.append(h("button", { class: "btn primary", onclick: () => { wf.look = clone(S.defaultLook); wf.look.welcomeTitle = wf.name; changed(true); validate(); } }, "Customize the look and feel"));
+    return;
+  }
+  const L = wf.look, set = (k, v, redraw) => { L[k] = v; changed(!!redraw); if (!redraw) drawMock(); };
+  const mock = h("div", { id: "lookMock" }); P.append(mock);
+  const drawMock = () => {
+    const c = L.colors, img = (L.images || {}).logo;
+    mock.replaceChildren(h("div", { style: `border:1px solid var(--line);border-radius:8px;overflow:hidden;font-family:${L.fontName || "Arial"},sans-serif;margin:8px 0` },
+      h("div", { style: `background:${c.headerBarBackgroundColor};color:${c.fontHeaderColor};padding:8px 12px;display:flex;align-items:center;gap:8px;font-size:${Math.min(22, Math.max(10, Number(L.headerFontSize) || 16))}px` },
+        img ? h("img", { src: `data:${img.type};base64,${img.base64}`, style: `height:${{ SMALL: 18, MEDIUM: 28, LARGE: 40 }[L.logoSize] || 28}px;max-width:90px;object-fit:contain` }) : null, h("b", {}, L.welcomeTitle || "Welcome title"), h("span", { style: "margin-left:auto;font-size:11px;color:" + c.startOverFontColor }, "Start over")),
+      h("div", { style: `background:${c.backgroundColor};color:${c.fontColor};padding:14px 12px;border-top:2px solid ${c.lineColor}` }, h("div", { style: "margin-bottom:8px" }, L.welcomeName || "Welcome name"), h("div", { style: `display:inline-block;background:${c.buttonColor};color:${c.buttonFontColor};padding:5px 14px;border-radius:4px` }, "Continue")),
+      L.disablePoweredBy ? null : h("div", { style: "font-size:10px;color:var(--muted);padding:3px 12px" }, "Powered by RUCKUS")));
+  };
+  const text = (label, key, extra = {}) => h("div", { class: "field" }, h("label", {}, label), h("input", { type: "text", value: L[key] || "", ...extra, oninput: (e) => set(key, e.target.value) }));
+  P.append(text("Welcome title *", "welcomeTitle", { maxlength: 100 }), text("Welcome name", "welcomeName", { maxlength: 100 }));
+  P.append(h("h2", {}, "Colors"));
+  for (const [k, label] of S.lookColors) {
+    const txt = h("input", { type: "text", value: L.colors[k] || "", style: "max-width:100px", oninput: (e) => { L.colors[k] = e.target.value; if (/^#[0-9a-f]{6}$/i.test(e.target.value)) col.value = e.target.value; changed(false); drawMock(); } });
+    const col = h("input", { type: "color", value: hex6(L.colors[k]), style: "width:42px;height:30px;padding:0;border:1px solid var(--line);border-radius:6px;background:none", oninput: (e) => { L.colors[k] = e.target.value.toUpperCase(); txt.value = L.colors[k]; changed(false); drawMock(); } });
+    P.append(h("div", { class: "field row", style: "display:flex;align-items:center;gap:8px;margin:6px 0" }, h("label", { style: "flex:1;margin:0;font-size:13px;color:var(--ink)" }, label), col, txt));
+  }
+  P.append(h("h2", {}, "Style"));
+  P.append(h("div", { class: "field" }, h("label", {}, "Logo size"), h("select", { onchange: (e) => set("logoSize", e.target.value) }, ["SMALL", "MEDIUM", "LARGE"].map((v) => h("option", { value: v, selected: v === L.logoSize }, v.toLowerCase())))));
+  P.append(h("div", { class: "field" }, h("label", {}, "Font"), h("select", { onchange: (e) => set("fontName", e.target.value) }, [...new Set([...FONTS, L.fontName || "Arial"])].map((v) => h("option", { value: v, selected: v === (L.fontName || "Arial") }, v)))));
+  P.append(h("div", { class: "field" }, h("label", {}, "Header text size"), h("input", { type: "number", min: 8, max: 72, value: L.headerFontSize == null ? 16 : L.headerFontSize, oninput: (e) => set("headerFontSize", e.target.value === "" ? undefined : Number(e.target.value)) })));
+  P.append(h("div", { class: "field check" }, h("input", { type: "checkbox", id: "lk_pb", checked: !!L.disablePoweredBy, onchange: (e) => set("disablePoweredBy", e.target.checked) }), h("label", { for: "lk_pb", style: "margin:0" }, "Hide “Powered by RUCKUS”")));
+  P.append(h("h2", {}, "Images"));
+  L.images = L.images || {};
+  for (const [kind, label] of [["logo", "Logo"], ["background", "Background image"], ["icon", "Icon"]]) {
+    const img = L.images[kind];
+    const file = h("input", { type: "file", accept: "image/png,image/jpeg,image/gif,image/svg+xml", onchange: (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      if (f.size > 5 * 1024 * 1024) { alert("That image is over 5 MB. Please use a smaller one."); return; }
+      const rd = new FileReader(); rd.onload = () => { const b64 = String(rd.result).split(",")[1]; L.images[kind] = { filename: f.name, type: f.type || "image/png", base64: b64 }; changed(true); validate(); }; rd.readAsDataURL(f);
+    } });
+    P.append(h("div", { class: "field" }, h("label", {}, label), img ? h("div", { class: "row", style: "display:flex;align-items:center;gap:8px;margin-bottom:6px" },
+      h("img", { src: `data:${img.type};base64,${img.base64}`, style: "height:40px;max-width:120px;object-fit:contain;border:1px solid var(--line);border-radius:4px;background:#fff" }),
+      h("span", { class: "hint" }, `${img.filename || kind} · ${(img.base64.length * 0.75 / 1024).toFixed(0)} KB`), h("button", { class: "btn small", onclick: () => { delete L.images[kind]; changed(true); validate(); } }, "Remove")) : null, file));
+  }
+  P.append(h("p", {}, h("button", { class: "btn small danger", onclick: () => { if (confirm("Remove the customisation and use R1's default look?")) { delete wf.look; changed(true); validate(); } } }, "Use R1's defaults instead")));
+  drawMock();
 }
 
 /* ---------- preview ---------- */
@@ -476,10 +554,10 @@ function renderPreview(P) {
   if (Pv.skipped && Pv.skipped.length) P.append(h("div", { class: "note bad" }, "Not built: " + Pv.skipped.map((s) => s.why).join("; ")));
   const wc = Pv.willCreate || [], uses = referenced();
   P.append(h("div", { class: "chips" }, chip(wc.length, "to create"), chip(uses.length, "reused"), chip((Pv.calls || []).filter((c) => /^\[dry\]/.test(c)).length, "calls"), chip("off", "published")));
-  P.append(h("h2", {}, S.tpl ? "The finished template" : "The finished workflow"), h("div", { class: "outline" }, S.tpl ? templateOutline(S.tpl) : (outlineLines(S.wf.steps).join("\n") || "(empty)")));
+  P.append(h("h2", {}, S.obj ? "The finished " + objDef().label : "The finished workflow"), h("div", { class: "outline" }, S.obj ? objOutline(S.obj) : ([...outlineLines(S.wf.steps), lookLine(S.wf)].filter(Boolean).join("\n") || "(empty)")));
   P.append(h("h2", {}, "Will be created in RUCKUS One"));
   P.append(h("ul", { class: "objs" }, wc.map((x) => h("li", {}, h("span", { class: "k" }, x.kind), h("b", {}, x.name)))));
-  P.append(h("p", { class: "hint" }, S.tpl ? "A new template is created; existing templates and the certificate authority are not changed." : "Plus the workflow's actions and steps. The workflow is created unpublished: visitors can't reach it until you publish it in RUCKUS One."));
+  P.append(h("p", { class: "hint" }, S.obj ? objDef().made : "Plus the workflow's actions and steps. The workflow is created unpublished: visitors can't reach it until you publish it in RUCKUS One."));
   if (uses.length) P.append(h("h2", {}, "Already in R1: only referenced, never changed"), h("ul", { class: "objs" }, uses.map((u) => h("li", {}, h("span", { class: "k" }, u[0]), h("b", {}, u[1])))));
   for (const n of Pv.notes || []) P.append(h("div", { class: "note" }, n));
   const warns = Pv.issues.filter((i) => i.level === "warn");
@@ -490,7 +568,7 @@ function renderPreview(P) {
 const chip = (v, t) => h("div", { class: "chip" }, h("b", {}, v), t);
 function referenced() {
   const uses = [];
-  if (S.tpl) { const ca = nameOf(S.inv.cas, S.tpl.caId); return ca ? [["certificate authority", ca]] : []; }
+  if (S.obj) { if (S.obj.kind !== "certTemplate") return []; const ca = nameOf(S.inv.cas, S.obj.caId); return ca ? [["certificate authority", ca]] : []; }
   eachNode(S.wf.steps, (n) => {
     const p = n.params || {}, inv = S.inv;
     if (p.mode === "existing") { const ref = { DPSK: ["DPSK pool", inv.dpskPools, p.dpskPoolId], MAC_REG: ["MAC list", inv.macPools, p.macRegListId], CERT_TEMPLATE: ["certificate template", inv.certTemplates, p.certTemplateId] }[n.type]; if (ref && nameOf(ref[1], ref[2])) uses.push([ref[0], nameOf(ref[1], ref[2])]); }
@@ -499,39 +577,56 @@ function referenced() {
   return uses.filter((u, i) => uses.findIndex((x) => x[1] === u[1]) === i);
 }
 
-/* ---------- certificate template form ---------- */
+/* ---------- form objects ---------- */
 function tplChanged() {
   S.dirty = true; clearTimeout(vt); vt = setTimeout(validate, 200);
-  renderHeader(); if (S.tab === "preview") { /* stale note appears on the next render */ }
-  const sum = $("#tplSummary"); if (sum) sum.textContent = templateOutline(S.tpl);
+  renderHeader();
+  const sum = $("#objSummary"); if (sum) sum.textContent = objOutline(S.obj);
 }
-function templateOutline(t) {
-  const ca = nameOf(S.inv.cas, t.caId) || "(choose an authority)";
-  return [`🎫 Certificate template: ${t.name}`, `   issued by: ${ca}`, `   common name: ${t.commonNamePattern || "(none)"}${t.emailPattern ? "   email: " + t.emailPattern : ""}`,
-    `   valid for ${t.validityValue || "?"} ${String(t.validityType || "").toLowerCase()}, starting ${t.startValue || 0} ${String(t.startType || "").toLowerCase()} before issue`,
-    `   ${[t.organization, t.organizationUnit, t.locality, t.state, t.country].filter(Boolean).join(", ") || "(no organization details)"}`, `   ${t.algorithm}, ${t.keyLength}-bit key`].join("\n");
-}
-function templateForm() {
-  const t = S.tpl, box = h("div", { class: "card", style: "width:min(620px,92vw);cursor:default;display:block;border-left-color:var(--onboard)" });
-  box.append(h("div", { class: "t" }, "Certificate template"), h("h3", { style: "margin:2px 0 8px" }, t.name));
-  for (const fd of S.tplFields) {
-    const label = h("label", { style: "display:block;font-size:12px;color:var(--muted);margin-bottom:3px" }, fd.label + (fd.required ? " *" : ""));
-    const set = (v) => { t[fd.key] = v; tplChanged(); };
-    let input;
-    if (fd.type === "ref") { const list = S.inv[fd.ref] || []; input = h("select", { onchange: (e) => set(e.target.value || "") }, h("option", { value: "" }, list.length ? "Choose…" : "(none found in R1)"), list.map((x) => h("option", { value: x.id, selected: x.id === t[fd.key] }, x.name))); }
-    else if (fd.type === "select") input = h("select", { onchange: (e) => set(/^\d+$/.test(e.target.value) && fd.key === "keyLength" ? Number(e.target.value) : e.target.value) }, fd.choices.map(([v, tx]) => h("option", { value: v, selected: String(v) === String(t[fd.key]) }, tx)));
-    else if (fd.type === "number") input = h("input", { type: "number", min: fd.min, value: t[fd.key] == null ? "" : t[fd.key], oninput: (e) => set(e.target.value === "" ? undefined : Number(e.target.value)) });
-    else input = h("input", { type: "text", value: t[fd.key] == null ? "" : t[fd.key], maxlength: fd.max, oninput: (e) => { if (fd.key === "name") { $("#wfName").value = e.target.value; } set(e.target.value); } });
-    box.append(h("div", { class: "field" }, label, input, fd.help ? h("div", { class: "hint" }, fd.help) : null));
+const lcase = (x) => String(x || "").toLowerCase();
+function objOutline(o) {
+  if (o.kind === "guestNetwork") {
+    const type = (S.guestFields.find((f) => f.key === "guestNetworkType").choices.find((c) => c[0] === o.guestNetworkType) || [0, o.guestNetworkType])[1];
+    return [`📶 Guest network: ${o.name}`, `   Wi-Fi name: ${o.ssid || "(choose one)"}   security: ${o.wlanSecurity === "OWE" ? "open with encryption" : "open"}   VLAN ${o.vlanId || 1}`, `   sign-in: ${type}`,
+      `   portal page: “${o.title || "(no title)"}”${o.welcomeMessage ? " — " + o.welcomeMessage : ""}`, `   terms: ${o.termsAndConditions ? o.termsAndConditions.length + " characters" : "(none)"}`,
+      `   ${o.maxDevices || 1} device(s) per visitor, session ${o.userSessionTimeout || 1440} min (+${o.userSessionGracePeriod == null ? 60 : o.userSessionGracePeriod} grace)`].join("\n");
   }
-  box.append(h("h2", {}, "Summary"), h("div", { class: "outline", id: "tplSummary" }, templateOutline(t)));
+  const ca = nameOf(S.inv.cas, o.caId) || "(choose an authority)";
+  return [`🎫 Certificate template: ${o.name}`, `   issued by: ${ca}`, `   common name: ${o.commonNamePattern || "(none)"}${o.emailPattern ? "   email: " + o.emailPattern : ""}`,
+    `   valid for ${o.validityValue || "?"} ${lcase(o.validityType)}, starting ${o.startValue || 0} ${lcase(o.startType)} before issue`,
+    `   ${[o.organization, o.organizationUnit, o.locality, o.state, o.country].filter(Boolean).join(", ") || "(no organization details)"}`, `   ${o.algorithm}, ${o.keyLength}-bit key`].join("\n");
+}
+function objectForm() {
+  const o = S.obj, d = objDef(), box = h("div", { class: "card", style: "width:min(620px,92vw);cursor:default;display:block;border-left-color:var(--onboard)" });
+  box.append(h("div", { class: "t" }, d.label), h("h3", { style: "margin:2px 0 8px" }, o.name));
+  const fields = h("div", {}); box.append(fields);
+  const draw = () => {
+    fields.replaceChildren();
+    for (const fd of d.fields()) {
+      if (fd.showIf && !Object.entries(fd.showIf).every(([k, v]) => o[k] === v)) continue;
+      const label = h("label", { style: "display:block;font-size:12px;color:var(--muted);margin-bottom:3px" }, fd.label + (fd.required ? " *" : ""));
+      const set = (v, redraw) => { o[fd.key] = v; tplChanged(); if (redraw) draw(); };
+      let input;
+      if (fd.type === "bool") { fields.append(h("div", { class: "field check" }, h("input", { type: "checkbox", id: "o_" + fd.key, checked: !!o[fd.key], onchange: (e) => set(e.target.checked) }), h("label", { for: "o_" + fd.key, style: "margin:0" }, fd.label))); continue; }
+      if (fd.type === "ref") { const list = S.inv[fd.ref] || []; input = h("select", { onchange: (e) => set(e.target.value || "") }, h("option", { value: "" }, list.length ? "Choose…" : "(none found in R1)"), list.map((x) => h("option", { value: x.id, selected: x.id === o[fd.key] }, x.name))); }
+      else if (fd.type === "select") input = h("select", { onchange: (e) => set(/^\d+$/.test(e.target.value) && fd.key === "keyLength" ? Number(e.target.value) : e.target.value, fd.key === "guestNetworkType") }, fd.choices.map(([v, tx]) => h("option", { value: v, selected: String(v) === String(o[fd.key]) }, tx)));
+      else if (fd.type === "number") input = h("input", { type: "number", min: fd.min, max: fd.max, value: o[fd.key] == null ? "" : o[fd.key], oninput: (e) => set(e.target.value === "" ? undefined : Number(e.target.value)) });
+      else if (fd.type === "textarea") input = h("textarea", { maxlength: fd.max, style: "min-height:110px", oninput: (e) => set(e.target.value) }, o[fd.key] || "");
+      else if (fd.type === "lines") input = h("textarea", { style: "min-height:60px", oninput: (e) => set(e.target.value.split("\n").map((x) => x.trim()).filter(Boolean)) }, (o[fd.key] || []).join("\n"));
+      else input = h("input", { type: "text", value: o[fd.key] == null ? "" : o[fd.key], maxlength: fd.max, oninput: (e) => { if (fd.key === "name") { $("#wfName").value = e.target.value; } set(e.target.value); } });
+      fields.append(h("div", { class: "field" }, label, input, fd.help ? h("div", { class: "hint" }, fd.help) : null, fd.max && fd.type === "textarea" ? h("div", { class: "hint" }, "up to " + fd.max + " characters") : null));
+    }
+  };
+  draw();
+  box.append(h("h2", {}, "Summary"), h("div", { class: "outline", id: "objSummary" }, objOutline(o)));
   return h("div", { style: "padding:24px" }, box);
 }
-function renderTemplateHelp(R) {
-  R.append(h("h2", {}, "Certificate template"));
-  if (S.tpl.source && S.tpl.source.r1) R.append(h("div", { class: "note" }, "A copy of the RUCKUS One template “" + S.tpl.source.r1Name + "”. Saving creates a new template with the new name; the original is not changed."));
+function renderObjectHelp(R) {
+  const d = objDef();
+  R.append(h("h2", {}, d.label[0].toUpperCase() + d.label.slice(1)));
+  if (S.obj.source && S.obj.source.r1) R.append(h("div", { class: "note" }, "A copy of the RUCKUS One " + d.label + " “" + S.obj.source.r1Name + "”. Saving creates a new " + d.label + " with the new name; the original is not changed."));
   for (const m of S.importNotes || []) R.append(h("div", { class: "note bad" }, m));
-  R.append(h("div", { class: "note" }, "Change the settings in the form. Use Preview to see exactly what would be created, then Apply. A new identity group with the same name is created for the template, as R1 requires."));
+  R.append(h("div", { class: "note" }, d.help));
 }
 
 /* ---------- actions ---------- */
@@ -543,8 +638,8 @@ function changed(structural) {
   if (structural) renderRight();
 }
 async function validate() {
-  if (!S.wf && !S.tpl) return;
-  try { S.issues = S.tpl ? (await api("/api/template/validate", { template: S.tpl, options: options() })).issues : (await api("/api/validate", { workflow: S.wf, options: options() })).issues; } catch { return; }
+  if (!S.wf && !S.obj) return;
+  try { S.issues = S.obj ? (await objApi("validate")).issues : (await api("/api/validate", { workflow: slimWf(S.wf), options: options() })).issues; } catch { return; }
   renderHeader(); renderCanvas();
   const focus = document.activeElement, typing = focus && /INPUT|TEXTAREA|SELECT/.test(focus.tagName);
   if (typing) {      // don't rebuild the panel under the user's cursor; just refresh the problem counts
@@ -598,38 +693,43 @@ function dropNode(id, arr, index) {
 }
 async function openWorkflow(wf, source, notes) {
   if (S.dirty && !confirm("Discard the changes to what you have open?")) return;
-  if (wf.kind === "certTemplate") return openTemplate(wf, source, notes);
-  delete wf._issues; S.tpl = null; S.importNotes = notes || null;
+  if (wf.kind === "certTemplate" || wf.kind === "guestNetwork") return openObject(wf, source, notes);
+  delete wf._issues; S.obj = null; S.importNotes = notes || null;
   S.wf = wf; S.source = source; S.selected = null; S.preview = null; S.previewKey = null; S.applied = null; S.fixNote = null; S.dirty = false; S.tab = "step"; S.fit = true;
   histInit();
   try { S.issues = (await api("/api/validate", { workflow: wf, options: options() })).issues; } catch { S.issues = []; }
   renderAll();
 }
-async function openTemplate(tpl, source, notes) {
+async function buildGuestFromCloudpath(name) {
+  try { const r = await api("/api/guest/prefill", { name }); await openObject(r.guest, "pf:" + name, r.notes); }
+  catch (e) { alert("Could not build it: " + e.message); }
+}
+async function openObject(tpl, source, notes) {
   if (S.dirty && !confirm("Discard the changes to what you have open?")) return;
-  S.tpl = tpl; S.wf = null; S.source = source; S.selected = null; S.preview = null; S.previewKey = null; S.applied = null; S.fixNote = null; S.importNotes = notes || null; S.dirty = false; S.tab = "step";
-  try { S.issues = (await api("/api/template/validate", { template: tpl, options: options() })).issues; } catch { S.issues = []; }
+  S.obj = tpl; S.wf = null; S.source = source; S.selected = null; S.preview = null; S.previewKey = null; S.applied = null; S.fixNote = null; S.importNotes = notes || null; S.dirty = false; S.tab = "step";
+  try { S.issues = (await objApi("validate")).issues; } catch { S.issues = []; }
   renderAll();
 }
 async function importFromR1(kind, id) {
   try {
     const r = await api("/api/import/" + kind, { id });
     if (kind === "workflow") await openWorkflow(r.workflow, "r1w:" + id, r.warnings);
-    else await openTemplate(r.template, "r1t:" + id, r.warnings);
+    else if (kind === "guest") await openObject(r.guest, "r1g:" + id, r.warnings);
+    else await openObject(r.template, "r1t:" + id, r.warnings);
   } catch (e) { alert("Could not read it from RUCKUS One: " + e.message); }
 }
 async function loadDraft(name) { try { const r = await api("/api/drafts/load", { name }); openWorkflow(r.workflow, "d:" + name); } catch (e) { alert(e.message); } }
 async function delDraft(name) { if (!confirm("Delete the draft “" + name + "”?")) return; S.drafts = (await api("/api/drafts/delete", { name })).drafts; renderLeft(); }
 async function saveDraft() {
-  const name = prompt("Save draft as:", (S.tpl || S.wf).name); if (!name) return;
-  try { S.drafts = (await api("/api/drafts", { name, workflow: S.tpl || S.wf }, "PUT")).drafts; S.dirty = false; S.source = "d:" + name; renderLeft(); } catch (e) { alert(e.message); }
+  const name = prompt("Save draft as:", (S.obj || S.wf).name); if (!name) return;
+  try { S.drafts = (await api("/api/drafts", { name, workflow: S.obj || S.wf }, "PUT")).drafts; S.dirty = false; S.source = "d:" + name; renderLeft(); } catch (e) { alert(e.message); }
 }
 async function refreshInv() { S.inv = (await api("/api/refresh", {})).inventory; renderAll(); validate(); }
 
 async function doPreview() {
   S.tab = "preview"; const k = key();
   renderRight(); const b = $("#runPreview"); if (b) { b.disabled = true; b.textContent = "Checking…"; }
-  try { S.preview = S.tpl ? await api("/api/template/preview", { template: S.tpl, options: options() }) : await api("/api/preview", { workflow: S.wf, options: options() }); S.previewKey = k; S.issues = S.preview.issues; S.applied = S.applied && S.applied.ok ? null : S.applied; }
+  try { S.preview = S.obj ? await objApi("preview") : await api("/api/preview", { workflow: S.wf, options: options() }); S.previewKey = k; S.issues = S.preview.issues; S.applied = S.applied && S.applied.ok ? null : S.applied; }
   catch (e) { S.preview = { issues: [], error: e.message, calls: [], willCreate: [] }; S.previewKey = k; }
   renderHeader(); renderCanvas(); renderRight();
 }
@@ -642,18 +742,18 @@ async function doApply() {
   go.addEventListener("click", async () => {
     go.disabled = true; go.textContent = "Creating…";
     try {
-      const r = S.tpl ? await api("/api/template/apply", { template: S.tpl, options: options(), hash: P.hash }) : await api("/api/apply", { workflow: S.wf, options: options(), hash: P.hash });
+      const r = S.obj ? await objApi("apply", { hash: P.hash }) : await api("/api/apply", { workflow: S.wf, options: options(), hash: P.hash });
       closeModal();
       const status = ((r.calls || []).join("\n").match(/R1 says (\w+)/) || [])[1];
       const bad = r.error || (r.skipped && r.skipped.length);
       S.applied = bad ? { ok: false, text: "Not created: " + (r.error || r.skipped.map((s) => s.why).join("; ")) } :
-        { ok: true, undo: true, text: "Created in RUCKUS One" + (status ? " (R1 reports it " + status + ")" : "") + ": " + r.created.map((c) => c.kind + " “" + c.name + "”").join(", ") + (S.tpl ? "." : ". The workflow is unpublished.") + ((r.notes || []).length ? " " + r.notes.join(" ") : "") };
+        { ok: true, undo: true, text: "Created in RUCKUS One" + (status ? " (R1 reports it " + status + ")" : "") + ": " + r.created.map((c) => c.kind + " “" + c.name + "”").join(", ") + (S.obj ? "." : ((S.wf && S.wf.look) ? " and its look and feel. " : ". ") + "The workflow is unpublished.") + ((r.notes || []).length ? " " + r.notes.join(" ") : "") };
       S.previewKey = null; S.dirty = false; S.inv = (await api("/api/refresh", {})).inventory;
     } catch (e) { closeModal(); S.applied = { ok: false, text: "Apply failed: " + e.message }; }
     S.tab = "preview"; renderAll();
   });
   modal(h("div", { class: "dialog" }, h("h3", {}, "Create this in RUCKUS One?"),
-    h("p", {}, S.tpl ? "This creates the certificate template “" + name + "”" + (objs.length ? ":" : ".") : "This creates the workflow “" + name + "” (unpublished) and its actions" + (objs.length ? ", plus:" : ".")),
+    h("p", {}, S.obj ? "This creates the " + objDef().label + " “" + name + "”" + (objs.length ? ":" : ".") : "This creates the workflow “" + name + "” (unpublished) and its actions" + (objs.length ? ", plus:" : ".")),
     objs.length ? h("ul", {}, objs.map((o) => h("li", {}, o))) : null,
     h("p", { class: "hint" }, "If anything fails part way, what was created is removed again. Everything is listed in data/created.json and can be removed with node bin/undo.js --yes."),
     h("div", { class: "field" }, h("label", {}, "Type the workflow name to confirm"), input),
@@ -680,7 +780,7 @@ function setRW(px) { px = Math.max(320, Math.min(760, px)); document.documentEle
   window.addEventListener("resize", applyZoom);
   const rsz = $("#rsz");
   rsz.addEventListener("pointerdown", (e) => { rsz.setPointerCapture(e.pointerId); rsz.classList.add("on"); const move = (ev) => setRW(window.innerWidth - ev.clientX); const up = () => { rsz.classList.remove("on"); rsz.removeEventListener("pointermove", move); rsz.removeEventListener("pointerup", up); }; rsz.addEventListener("pointermove", move); rsz.addEventListener("pointerup", up); });
-  $("#tabStep").addEventListener("click", () => setTab("step")); $("#tabProblems").addEventListener("click", () => setTab("problems")); $("#tabPreview").addEventListener("click", () => setTab("preview"));
+  $("#tabStep").addEventListener("click", () => setTab("step")); $("#tabLook").addEventListener("click", () => setTab("look")); $("#tabProblems").addEventListener("click", () => setTab("problems")); $("#tabPreview").addEventListener("click", () => setTab("preview"));
 })();
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") { if ($("#modal").children.length) closeModal(); else if (S.selected) select(null); return; }
@@ -697,7 +797,7 @@ document.addEventListener("keydown", (e) => {
     const el = document.querySelector(`.card[data-id="${S.selected}"]`); if (el) el.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 });
-$("#wfName").addEventListener("input", (e) => { if (S.tpl) { S.tpl.name = e.target.value; tplChanged(); } else if (S.wf) { S.wf.name = e.target.value; changed(false); } });
+$("#wfName").addEventListener("input", (e) => { if (S.obj) { S.obj.name = e.target.value; tplChanged(); } else if (S.wf) { S.wf.name = e.target.value; changed(false); } });
 $("#prefix").addEventListener("input", () => { renderHeader(); validate(); if (S.tab === "preview") renderRight(); });
 $("#venue").addEventListener("change", () => { renderHeader(); if (S.tab === "preview") renderRight(); });
 $("#btnPreview").addEventListener("click", doPreview);
@@ -707,7 +807,7 @@ $("#btnUndo").addEventListener("click", undo); $("#btnRedo").addEventListener("c
 (async function init() {
   try {
     const st = await api("/api/state");
-    Object.assign(S, { schema: st.schema, inv: st.inventory, cloudpath: st.cloudpath, drafts: st.drafts, blank: st.blank, live: st.live, tplFields: st.templateFields, blankTpl: st.blankTemplate });
+    Object.assign(S, { schema: st.schema, inv: st.inventory, cloudpath: st.cloudpath, drafts: st.drafts, blank: st.blank, live: st.live, tplFields: st.templateFields, blankTpl: st.blankTemplate, guestFields: st.guestFields, blankGuest: st.blankGuest, lookColors: st.lookColors, defaultLook: st.defaultLook });
     for (const w of S.cloudpath) { try { w._issues = (await api("/api/validate", { workflow: w, options: {} })).issues.filter((i) => i.level === "error").length; } catch { w._issues = 0; } }
     S.wf = null; renderAll();
   } catch (e) { $("#flow").append(h("p", { style: "color:var(--bad)" }, "Could not load: " + e.message)); }

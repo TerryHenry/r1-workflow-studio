@@ -6,6 +6,7 @@ const path = require("node:path");
 const http = require("node:http");
 const crawl = require("./fixtures/crawl.json");
 const { createUiServer } = require("../src/ui-server");
+const { Builder, makeApi } = require("../src/build");
 const { fakeR1 } = require("./fake-r1");
 const { validate, newNode, blankWorkflow, fromPlan, toBuildWorkflow, outline } = require("../src/model");
 const { convertAll } = require("../src/convert");
@@ -299,5 +300,119 @@ test("server: import routes are read-only and template apply is gated by a previ
     assert.ok(s.fake.calls.some((c) => c.method === "POST" && c.path === "/certificateAuthorities/ca-1/templates" && c.body.name === "Brand new tpl"));
     const bad = (await s.post("/api/template/preview", { template: { ...tpl, name: "Guest Policy Template" }, options: {} })).json();
     assert.ok(bad.issues.some((i) => /already exists/.test(i.message)));
+  } finally { await s.close(); }
+});
+
+// ---- look and feel, guest networks ----
+const PNG_B64 = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40)]).toString("base64");
+
+test("look and feel: validation, multipart parts, and the builder posts it after the steps", async () => {
+  const { validateLook, lookParts, DEFAULT_LOOK, sniffImage } = require("../src/model");
+  const L = JSON.parse(JSON.stringify(DEFAULT_LOOK)); L.welcomeTitle = "Hi"; L.colors.buttonColor = "#112233"; L.images = { logo: { filename: "l.png", type: "image/png", base64: PNG_B64 } };
+  assert.deepEqual(validateLook(L), []);
+  assert.ok(validateLook({ ...L, welcomeTitle: "" }).some((i) => /welcome title/.test(i.message)));
+  assert.ok(validateLook({ ...L, colors: { ...L.colors, fontColor: "red" } }).some((i) => /not a color/.test(i.message)));
+  assert.ok(validateLook({ ...L, images: { logo: { type: "application/pdf", base64: "AA" } } }).some((i) => /PNG, JPEG/.test(i.message)));
+  assert.ok(validateLook({ ...L, images: { logo: { type: "image/png", bytes: 6 * 1024 * 1024 } } }).some((i) => /over 5 MB/.test(i.message)), "size can be sent instead of the data");
+  const parts = lookParts(L);
+  assert.equal(parts.uiConfiguration.json.uiColorSchema.buttonColor, "#112233");
+  assert.equal(parts.logoImage.file.type, "image/png");
+  assert.equal(sniffImage(Buffer.from(PNG_B64, "base64")), "image/png");
+  assert.equal(sniffImage(Buffer.from("<svg xmlns='x'/>")), "image/svg+xml");
+  assert.equal(sniffImage(Buffer.from("nope")), null);
+
+  const fake = fakeR1();
+  const calls = fake.calls;
+  const orig = fake.client.call;
+  fake.client.call = async (m, p, b) => { if (m === "GET" && /uiConfigurations$/.test(p)) { const c = calls.find((x) => /uiConfigurations$/.test(x.path) && x.method === "POST"); return c ? { welcomeTitle: "Hi" } : {}; } return orig(m, p, b); };
+  const wf = { name: "Looky", description: "", steps: [newNode("AUP"), Object.assign(newNode("CERT_TEMPLATE"), { params: { mode: "existing", certTemplateId: "t1" } })], look: L };
+  const b = new Builder({ api: makeApi({ client: fake.client, apply: true, log: () => {} }), crawl: { objects: {} }, mapping: {}, opts: { pollMs: 0 }, log: () => {} });
+  const r = await b.buildAll({ workflows: [toBuildWorkflow(wf, { certTemplates: [{ id: "t1", name: "T", identityGroupId: "g" }] })] }, []);
+  assert.deepEqual(r.built, ["Looky"]);
+  const ui = calls.find((x) => x.method === "POST" && /uiConfigurations$/.test(x.path));
+  assert.ok(ui && ui.body.__multipart, "look and feel is sent as multipart");
+  assert.equal(ui.body.parts.uiConfiguration.json.welcomeTitle, "Hi");
+  assert.ok(ui.body.parts.logoImage);
+  assert.ok(calls.findIndex((x) => x === ui) > calls.findIndex((x) => /nextSteps$/.test(x.path)), "look is applied after the steps");
+});
+
+test("guest network: validation, request body, and building (venue optional)", async () => {
+  const { blankGuestNetwork, validateGuestNetwork, guestNetworkBody } = require("../src/model");
+  const g = { ...blankGuestNetwork(), name: "Visitors", ssid: "visitors-wifi", title: "Welcome", termsAndConditions: "Be nice.", userSessionTimeout: 600 };
+  const inv = { networks: [{ name: "Old", ssid: "old-wifi" }] };
+  assert.deepEqual(validateGuestNetwork(g, inv), []);
+  assert.ok(validateGuestNetwork({ ...g, ssid: "OLD-WIFI" }, inv).some((i) => /SSID .* already exists/.test(i.message)));
+  assert.ok(validateGuestNetwork({ ...g, name: "old" }, inv).some((i) => /already exists/.test(i.message)));
+  assert.ok(validateGuestNetwork({ ...g, ssid: "x".repeat(33) }, inv).some((i) => /over 32/.test(i.message)));
+  assert.ok(validateGuestNetwork({ ...g, welcomeMessage: "x".repeat(101) }, inv).some((i) => /over 100/.test(i.message)));
+  assert.ok(validateGuestNetwork({ ...g, guestNetworkType: "HostApproval" }, inv).some((i) => /host email domain/.test(i.message)));
+  const body = guestNetworkBody({ ...g, walledGardens: ["a.com", " "], redirectUrl: "https://x.example" }, "CP-");
+  assert.equal(body.name, "CP-Visitors"); assert.equal(body.type, "guest");
+  assert.deepEqual(body.wlan, { ssid: "visitors-wifi", wlanSecurity: "None", vlanId: 1, enabled: true });
+  assert.equal(body.guestPortal.guestNetworkType, "GuestPass");
+  assert.equal(body.guestPortal.userSessionTimeout, 600);
+  assert.deepEqual(body.guestPortal.walledGardens, ["a.com"]);
+  assert.equal(body.guestPortal.guestPage.termsAndConditions, "Be nice.");
+  assert.equal(body.guestPortal.redirectUrl, "https://x.example");
+  const host = guestNetworkBody({ ...g, guestNetworkType: "HostApproval", hostDomains: ["x.com"], hostDurationChoices: ["4", "24"] });
+  assert.deepEqual(host.guestPortal.hostGuestConfig, { hostDomains: ["x.com"], hostDurationChoices: [4, 24] });
+
+  const s = await start();
+  try {
+    const orig = s.fake.client.call;
+    s.fake.client.call = async (m, p, b) => { if (m === "POST" && p === "/wifiNetworks") { await orig(m, p, b); return { requestId: "r" }; } return orig(m, p, b); };
+    const pv = (await s.post("/api/guest/preview", { guest: g, options: { venueId: "v1" } })).json();
+    assert.deepEqual(pv.issues, []);
+    assert.deepEqual(pv.willCreate.map((x) => x.kind), ["Wi-Fi network (guest)"]);
+    assert.ok(pv.calls.some((c) => /PUT \/venues\/v1\/wifiNetworks/.test(c)));
+    assert.equal((await s.post("/api/guest/apply", { guest: g, options: { venueId: "v1" }, hash: "x" })).status, 409);
+    const ok = (await s.post("/api/guest/apply", { guest: g, options: { venueId: "v1" }, hash: pv.hash })).json();
+    assert.deepEqual(ok.built, ["Visitors"]);
+    const post = s.fake.calls.find((c) => c.method === "POST" && c.path === "/wifiNetworks");
+    assert.equal(post.body.guestPortal.guestPage.title, "Welcome");
+    assert.ok(s.fake.calls.some((c) => c.method === "PUT" && /\/venues\/v1\/wifiNetworks\/net-/.test(c.path)));
+  } finally { await s.close(); }
+});
+
+test("import: a workflow's look and feel (with its logo) and a guest network are copied", async () => {
+  const { importWorkflow, importGuestNetwork } = require("../src/r1import");
+  const f = fakeWorkflowApi();
+  const wrap = { async call(m, p) {
+    if (p === "/workflows/w1/uiConfigurations") return { welcomeTitle: "Hello", welcomeName: "Guest", uiColorSchema: { headerBarBackgroundColor: "#112233" }, uiStyleSchema: { logoImageFileName: "abc", logoSize: "LARGE", fontName: "Verdana", headerFontSize: 20 } };
+    if (p === "/workflows/w1/uiConfigurations/logo") return { fileUrl: "https://files.example/logo" };
+    if (m === "GET" && p === "/wifiNetworks/g1") return { id: "g1", name: "Lobby", type: "guest", wlan: { ssid: "lobby", wlanSecurity: "OWE", vlanId: 20 }, guestPortal: { guestNetworkType: "GuestPass", maxDevices: 2, userSessionTimeout: 300, guestPage: { title: "Hi", termsAndConditions: "T&C" }, walledGardens: ["a.com"] } };
+    if (m === "GET" && p === "/wifiNetworks/g2") return { id: "g2", name: "Wf", type: "guest", wlan: { ssid: "wf", wlanSecurity: "None" }, guestPortal: { guestNetworkType: "Workflow" } };
+    return f.client.call(m, p);
+  } };
+  const fetchImpl = async () => ({ ok: true, headers: { get: () => "application/octet-stream" }, arrayBuffer: async () => Buffer.from(PNG_B64, "base64") });
+  const r = await importWorkflow(wrap, "w1", fetchImpl);
+  assert.equal(r.workflow.look.welcomeTitle, "Hello");
+  assert.equal(r.workflow.look.colors.headerBarBackgroundColor, "#112233");
+  assert.equal(r.workflow.look.colors.buttonColor, "#4A4A4A", "unset colors fall back to R1's defaults");
+  assert.deepEqual([r.workflow.look.logoSize, r.workflow.look.fontName, r.workflow.look.headerFontSize], ["LARGE", "Verdana", 20]);
+  assert.equal(r.workflow.look.images.logo.type, "image/png", "type comes from the file, not R1's generic header");
+  const plain = await importWorkflow(f.client, "w1");
+  assert.equal(plain.workflow.look, undefined, "a workflow still on R1's default look carries no look");
+  const g = await importGuestNetwork(wrap, "g1");
+  assert.deepEqual([g.guest.name, g.guest.ssid, g.guest.wlanSecurity, g.guest.vlanId, g.guest.maxDevices, g.guest.title, g.guest.termsAndConditions, g.guest.walledGardens], ["Lobby (copy)", "", "OWE", 20, 2, "Hi", "T&C", ["a.com"]]);
+  assert.match(g.warnings[0], /SSID/);
+  const w = await importGuestNetwork(wrap, "g2");
+  assert.ok(w.warnings.some((x) => /Workflow network/.test(x)));
+  await assert.rejects(importGuestNetwork({ call: async () => ({ type: "psk" }) }, "x"), /not a guest network/);
+});
+
+test("guest network is suggested from a Cloudpath voucher workflow, and only from one", async () => {
+  const s = await start();
+  try {
+    const ok = await s.post("/api/guest/prefill", { name: "voucherFlow" });
+    assert.equal(ok.status, 200);
+    const r = ok.json();
+    assert.equal(r.guest.kind, "guestNetwork");
+    assert.equal(r.guest.ssid, "voucherFlow-guest");
+    assert.equal(r.guest.guestNetworkType, "GuestPass");
+    assert.ok(r.notes.some((n) => /voucher list: voucher email & SMS/.test(n)));
+    assert.ok(r.notes.some((n) => /SMS or email/.test(n)));
+    assert.equal((await s.post("/api/guest/prefill", { name: "Policy only" })).status, 409, "no voucher step, no guest network");
+    assert.equal((await s.post("/api/guest/prefill", { name: "nope" })).status, 404);
   } finally { await s.close(); }
 });

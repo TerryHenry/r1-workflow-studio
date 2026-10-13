@@ -31,6 +31,14 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
   A workflow is read step by step (actions, branches, pools and templates it uses); a certificate template opens as a form
   (authority, CN pattern, validity, organization, algorithm, key length). Anything the editor can't edit yet becomes a red
   placeholder, and problems in the original (R1 marks several of yours INVALID) are listed.
+- **Guest networks**: a form object like the certificate template (open one from "Guest networks in R1" as a copy, or "＋ New guest
+  network"): SSID, security, VLAN, sign-in type (guest pass, self sign-in, host approval, click through), the portal page (title,
+  tag line, welcome message, terms), session and device limits, walled garden. For a Cloudpath workflow with a **voucher step**
+  (`Corporate`, `voucherFlow`), select the red voucher step and press **Build a guest network instead**: the form is filled from the
+  workflow, with notes on what changed (voucher lists are not copied; passes are made in R1, by a sponsor, the guest API or Visitor Desk).
+- **Look and feel** (the **Look** tab of a workflow): welcome title and name, the 8 portal colors, logo size, font, header size,
+  "Powered by" and the logo / background / icon images (up to 5 MB each), with a live mock-up. Opening an R1 workflow copies its look,
+  logo included. Off by default: R1's own look is used unless you customize it.
 - **Edit on the diagram**: click a step to configure it; `+` adds a step (with search); drag a step onto a `+` to move it (also
   between branches); double-click a step to rename it; duplicate, move up/down, delete. Undo/redo (`⌘/Ctrl Z`, `⇧` for redo), `Del`
   deletes the selected step, `↑ ↓` select the previous/next step, `Esc` deselects.
@@ -150,6 +158,14 @@ Live results (2026-10-13, your tenant):
   readable before touching the split (a branch step posted too early gets "Validation failure").
 - Confirmed (editor, imported certificate template): opening `Lab Template` from R1, editing the copy (name, description, CN pattern, 3 months,
   organization) and applying created a new template + identity group with those values; the original was unchanged.
+- Confirmed (guest network and look and feel): `POST /wifiNetworks` with `type:"guest"` and a `GuestPass` portal creates the network
+  with the portal page text; `POST /workflows/{id}/uiConfigurations` (multipart: the JSON plus logo/background/icon files) stores the
+  title, colors and a 2.1 MB logo (R1 can take 30+ seconds to process it). Images come back from
+  `GET /workflows/{id}/uiConfigurations/{logo|background|icon}` as a signed link, served as a generic octet-stream.
+- Not yet built: R1's **logical split** (`FUNCTIONAL_SPLIT`, "Logical Split" in the R1 GUI: branches of conditions on Device OS,
+  Device Type, Language, Browser Name, Captive Portal SSID, Device MAC / IP address). The published API docs do not define its
+  condition format, so it needs a sample made in the R1 GUI to read. Cloudpath look and feel is not converted yet (needs a crawl of
+  its Look & Feel tab).
 - Not yet confirmed live: MAC registration pools, activating an SSID on a venue (`--venue`),
   and applying a workflow that creates new pools/templates from the editor. Confirmed: the editor's Apply with an existing pool
   (AUP + DPSK, VALID in R1, recorded in data/created.json). Try each kind on one small workflow, check it in the R1 UI,

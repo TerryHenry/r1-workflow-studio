@@ -103,6 +103,105 @@ function templateRef(t, prefix = "") {
     locality: t.locality, state: t.state, country: t.country, algorithm: t.algorithm, keyLength: Number(t.keyLength) || 2048 } };
 }
 
+// ---- look and feel of a workflow's portal (R1: PATCH-style POST /workflows/{id}/uiConfigurations) ----
+const LOOK_COLORS = [["backgroundColor", "Page background"], ["lineColor", "Lines"], ["fontColor", "Text"], ["fontHeaderColor", "Header text"], ["headerBarBackgroundColor", "Header bar"],
+  ["startOverFontColor", "Start over link"], ["buttonColor", "Buttons"], ["buttonFontColor", "Button text"]];
+const DEFAULT_LOOK = { welcomeTitle: "", welcomeName: "", colors: { backgroundColor: "#ECECEC", lineColor: "#FFFFFF", fontColor: "#000000", fontHeaderColor: "#000000", headerBarBackgroundColor: "#E57200", startOverFontColor: "#FFFFFF", buttonColor: "#4A4A4A", buttonFontColor: "#FFFFFF" },
+  logoSize: "MEDIUM", fontName: "Arial", headerFontSize: 16, disablePoweredBy: false, images: {} };
+const HEX = /^#(?:[0-9a-fA-F]{3}){1,2}$/;
+const IMG_MAX = 5 * 1024 * 1024;       // bytes per image
+function validateLook(look) {
+  const issues = [];
+  if (!look) return issues;
+  if (!String(look.welcomeTitle || "").trim()) issues.push({ level: "error", message: "Look and feel: the welcome title is required by R1 (clear the look and feel to keep R1's defaults)." });
+  for (const [k, label] of LOOK_COLORS) if (look.colors && look.colors[k] && !HEX.test(look.colors[k])) issues.push({ level: "error", message: `Look and feel: ${label} is not a color like #E57200.` });
+  if (look.headerFontSize != null && look.headerFontSize !== "" && !(Number(look.headerFontSize) >= 8 && Number(look.headerFontSize) <= 72)) issues.push({ level: "error", message: "Look and feel: the header font size must be 8 to 72." });
+  for (const [kind, img] of Object.entries(look.images || {})) {
+    if (!img) continue;
+    if (!/^image\/(png|jpe?g|gif|svg\+xml)$/.test(img.type || "")) issues.push({ level: "error", message: `Look and feel: the ${kind} image must be a PNG, JPEG, GIF or SVG file.` });
+    if ((img.bytes != null ? img.bytes : Math.round(String(img.base64 || "").length * 0.75)) > IMG_MAX) issues.push({ level: "error", message: `Look and feel: the ${kind} image is over 5 MB.` });
+  }
+  return issues;
+}
+// What R1's uiConfigurations call takes (multipart: the JSON plus any images).
+function lookParts(look) {
+  const cfg = { welcomeTitle: look.welcomeTitle, welcomeName: look.welcomeName || "", uiColorSchema: { ...look.colors },
+    uiStyleSchema: { fontName: look.fontName || "Arial", logoSize: look.logoSize || "MEDIUM", disablePoweredBy: !!look.disablePoweredBy, headerFontSize: Number(look.headerFontSize) || 16 } };
+  const parts = { uiConfiguration: { json: cfg } };
+  const names = { logo: "logoImage", background: "backgroundImage", icon: "iconImage" };
+  for (const [k, img] of Object.entries(look.images || {})) if (img && names[k]) parts[names[k]] = { file: { filename: img.filename || k, type: img.type, base64: img.base64 } };
+  return parts;
+}
+
+// ---- guest network (a captive-portal network where visitors sign in with a pass) ----
+const GUEST_TYPES = [["GuestPass", "Guest pass (visitor enters a code)"], ["SelfSignIn", "Self sign-in (visitor registers)"], ["HostApproval", "Host approval"], ["ClickThrough", "Click through (accept terms only)"]];
+const GUEST_FIELDS = [
+  f("name", "Network name", "text", { max: 100, required: true }), f("ssid", "Wi-Fi name (SSID)", "text", { max: 32, required: true }), f("description", "Description", "text", { max: 256 }),
+  f("guestNetworkType", "How visitors sign in", "select", { choices: GUEST_TYPES }),
+  f("wlanSecurity", "Wi-Fi security", "select", { choices: [["None", "Open"], ["OWE", "Open with encryption (OWE)"]] }), f("vlanId", "VLAN", "number", { min: 1, max: 4094 }),
+  f("title", "Portal page title", "text", { max: 100 }), f("tagLine", "Tag line", "text", { max: 140 }), f("welcomeMessage", "Welcome message", "text", { max: 100 }),
+  f("termsAndConditions", "Terms and conditions (the acceptable use policy)", "textarea", { max: 100000 }),
+  f("hostDomains", "Host email domains (one per line)", "lines", { showIf: { guestNetworkType: "HostApproval" } }), f("hostDurationChoices", "Hours a host can approve (one per line)", "lines", { showIf: { guestNetworkType: "HostApproval" } }),
+  f("maxDevices", "Devices per visitor", "number", { min: 1, max: 20 }), f("userSessionTimeout", "Session timeout (minutes)", "number", { min: 1 }), f("userSessionGracePeriod", "Grace period (minutes)", "number", { min: 0 }),
+  f("macCredentialsDuration", "Remember a device for (minutes)", "number", { min: 0 }), f("endOfDayReauthDelay", "Require sign-in again at the end of the day", "bool"),
+  f("redirectUrl", "Send visitors to this address afterwards", "text"), f("walledGardens", "Addresses reachable before sign-in (one per line)", "lines"),
+];
+function blankGuestNetwork() { return { kind: "guestNetwork", name: "New guest network", ssid: "", description: "", guestNetworkType: "GuestPass", wlanSecurity: "None", vlanId: 1, title: "Welcome", tagLine: "", welcomeMessage: "",
+  termsAndConditions: "", hostDomains: [], hostDurationChoices: [], maxDevices: 1, userSessionTimeout: 1440, userSessionGracePeriod: 60, macCredentialsDuration: 240, endOfDayReauthDelay: false, redirectUrl: "", walledGardens: [] }; }
+function validateGuestNetwork(g, inv = {}, opts = {}) {
+  const issues = [], add = (message) => issues.push({ level: "error", message });
+  for (const fd of GUEST_FIELDS) {
+    if (fd.showIf && !Object.entries(fd.showIf).every(([k, v]) => g[k] === v)) continue;
+    const v = g[fd.key], empty = v === undefined || v === null || v === "" || (Array.isArray(v) && !v.length);
+    if (fd.required && empty) { add(`${fd.label} is required.`); continue; }
+    if (empty) continue;
+    if (fd.max && fd.type !== "number" && fd.type !== "lines" && String(v).length > fd.max) add(`${fd.label} is over ${fd.max} characters.`);
+    if (fd.type === "number" && (Number.isNaN(Number(v)) || (fd.min != null && Number(v) < fd.min) || (fd.max != null && Number(v) > fd.max))) add(`${fd.label} must be a number${fd.min != null ? " from " + fd.min : ""}${fd.max != null ? " to " + fd.max : ""}.`);
+  }
+  if (g.guestNetworkType === "HostApproval") {
+    if (!(g.hostDomains || []).length) add("Host approval needs at least one host email domain.");
+    if (!(g.hostDurationChoices || []).length || (g.hostDurationChoices || []).some((x) => !(Number(x) > 0))) add("Host approval needs the hours a host can approve (whole numbers, one per line).");
+  }
+  const full = (opts.prefix || "") + (g.name || ""), ssid = String(g.ssid || "");
+  if ((inv.networks || []).some((n) => lc(n.name) === lc(full))) add(`A Wi-Fi network named "${full}" already exists in R1. Rename this one.`);
+  if (ssid && (inv.networks || []).some((n) => lc(n.ssid) === lc(ssid))) add(`A Wi-Fi network with the SSID "${ssid}" already exists in R1: choose a different one.`);
+  return issues;
+}
+// The body R1's POST /wifiNetworks takes for a guest network.
+function guestNetworkBody(g, prefix = "") {
+  const list = (x) => (x || []).map((v) => String(v).trim()).filter(Boolean);
+  const portal = { guestNetworkType: g.guestNetworkType || "GuestPass", maxDevices: Number(g.maxDevices) || 1, userSessionTimeout: Number(g.userSessionTimeout) || 1440,
+    userSessionGracePeriod: g.userSessionGracePeriod === "" || g.userSessionGracePeriod == null ? 60 : Number(g.userSessionGracePeriod), macCredentialsDuration: g.macCredentialsDuration == null || g.macCredentialsDuration === "" ? 240 : Number(g.macCredentialsDuration),
+    endOfDayReauthDelay: !!g.endOfDayReauthDelay, lockoutPeriodEnabled: false, enableSelfService: g.guestNetworkType === "SelfSignIn" || g.guestNetworkType === "GuestPass",
+    guestPage: Object.fromEntries(Object.entries({ langCode: "en", title: g.title, tagLine: g.tagLine, welcomeMessage: g.welcomeMessage, termsAndConditions: g.termsAndConditions, wifi4Eu: false }).filter(([, v]) => v !== undefined && v !== "")) };
+  if (g.redirectUrl) portal.redirectUrl = g.redirectUrl;
+  if (list(g.walledGardens).length) portal.walledGardens = list(g.walledGardens);
+  if (g.guestNetworkType === "HostApproval") portal.hostGuestConfig = { hostDomains: list(g.hostDomains), hostDurationChoices: list(g.hostDurationChoices).map(Number) };
+  return { type: "guest", name: prefix + g.name, ...(g.description ? { description: g.description } : {}),
+    wlan: { ssid: g.ssid, wlanSecurity: g.wlanSecurity || "None", vlanId: Number(g.vlanId) || 1, enabled: true }, guestPortal: portal };
+}
+
+// A Cloudpath workflow that verifies a voucher code (oob step) is, in R1, a guest network where visitors sign in with a pass.
+// `cpWf` is the raw crawled Cloudpath workflow. Returns { guest, notes }, or null when it has no voucher step.
+function guestFromPlan(cpWf) {
+  const planWf = cpWf, found = {};
+  (function walk(nodes) { for (const n of nodes || []) { if (n.kind === "aup" && !found.aup) found.aup = n; if (n.kind === "oob" && !found.oob) found.oob = n; for (const o of n.options || []) walk(o.steps); } })(cpWf.steps);
+  if (!found.oob) return null;
+  const val = (n, key) => { const v = n && n.fields && n.fields[key]; return v == null ? "" : typeof v === "object" ? (v.default || v.text || "") : String(v); };
+  const slug = String(planWf.name).replace(/[^\w -]/g, "").trim().slice(0, 24) || "workflow";
+  const g = blankGuestNetwork();
+  Object.assign(g, { name: `${planWf.name} guest network`.slice(0, 100), ssid: `${slug}-guest`.slice(0, 32), description: `Converted from the Cloudpath workflow "${planWf.name}" (voucher sign-in)`, title: "Welcome", welcomeMessage: "Enter the code you were given" });
+  const notes = [];
+  const lists = [val(found.oob, "otpListPk"), val(found.oob, "alternateOtpListPks")].filter(Boolean);
+  const sms = val(found.oob, "allowSms") === "1", mail = val(found.oob, "allowEmail") === "1";
+  notes.push("Cloudpath checks a voucher code the visitor enters" + (lists.length ? " (voucher list: " + lists.join(", ") + ")" : "") + ". In R1 that is a guest-pass network: visitors enter their pass on the portal page.");
+  if (sms || mail) notes.push("Cloudpath could send the code by " + [sms && "SMS", mail && "email"].filter(Boolean).join(" or ") + ". In R1 the delivery method is chosen when each pass is created (by a sponsor, the guest API or Visitor Desk).");
+  if (found.aup) notes.push("The acceptable use policy step becomes the portal page's terms: paste your policy text into “Terms and conditions”.");
+  notes.push("Cloudpath's voucher lists (the pre-made codes) are not copied; passes are created in R1.");
+  notes.push("A new SSID is needed: R1 does not allow two networks with the same name. Cloudpath moved visitors to a second network afterwards; a guest network is the network visitors stay on.");
+  return { guest: g, notes };
+}
+
 let seq = 0;
 const uid = (p = "n") => p + Date.now().toString(36) + (++seq).toString(36);
 
@@ -248,6 +347,7 @@ function validate(wf, inv = {}, opts = {}) {
     }
   };
   walk(wf.steps);
+  issues.push(...validateLook(wf.look));
   const maxOnboard = (nodes) => { let c = 0; for (const x of nodes) { if (ONBOARD.has(x.type)) c++; if (x.options) return c + Math.max(0, ...x.options.map((o) => maxOnboard(o.steps))); } return c; };
   if (maxOnboard(wf.steps) > 1) add("error", "R1 allows only one onboarding step (DPSK, MAC registration, certificate, passphrase or captive portal) in each path through the workflow, and at least one path has more.");
   if (wf.steps.length && !everyBranchOnboards(wf.steps)) add("error", "R1 needs an onboarding step (DPSK, MAC registration, certificate, passphrase or captive portal) in every path through the workflow; at least one path has none.");
@@ -345,7 +445,7 @@ function toBuildNodes(steps, inv = {}) {
 function stripEmpty(o) { return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null && v !== "")); }
 
 function toBuildWorkflow(wf, inv) {
-  return { name: wf.name, description: wf.description || "Built with the workflow editor", steps: toBuildNodes(wf.steps, inv) };
+  return { name: wf.name, description: wf.description || "Built with the workflow editor", steps: toBuildNodes(wf.steps, inv), look: wf.look && wf.look.welcomeTitle !== undefined ? wf.look : undefined };
 }
 
 // A readable outline for logs and tests.
@@ -353,4 +453,13 @@ function outline(steps, indent = "") {
   return steps.flatMap((n) => [`${indent}${n.type}: ${n.name}`, ...(n.options || []).flatMap((o) => [`${indent}  option "${o.name}"`, ...outline(o.steps, indent + "    ")])]);
 }
 
-module.exports = { TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, createMissing, ACTIONS, PLACEHOLDER, ONBOARD, newNode, newOption, blankWorkflow, fromPlan, validate, toBuildWorkflow, toBuildNodes, outline, everyBranchOnboards, visible, uid };
+// The image type from the file's own first bytes (R1 serves images as application/octet-stream).
+function sniffImage(buf) {
+  if (buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "image/png";
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
+  if (buf.length > 4 && buf.slice(0, 4).toString("latin1") === "GIF8") return "image/gif";
+  const head = buf.slice(0, 300).toString("utf8").trimStart();
+  if (head.startsWith("<svg") || (head.startsWith("<?xml") && head.includes("<svg"))) return "image/svg+xml";
+  return null;
+}
+module.exports = { guestFromPlan, sniffImage, LOOK_COLORS, DEFAULT_LOOK, validateLook, lookParts, GUEST_FIELDS, GUEST_TYPES, blankGuestNetwork, validateGuestNetwork, guestNetworkBody, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, createMissing, ACTIONS, PLACEHOLDER, ONBOARD, newNode, newOption, blankWorkflow, fromPlan, validate, toBuildWorkflow, toBuildNodes, outline, everyBranchOnboards, visible, uid };

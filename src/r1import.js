@@ -1,6 +1,6 @@
 // Reads an existing RUCKUS One workflow or certificate template into the editor's model, as something to edit and save as a
 // NEW copy. Read-only: nothing here writes to R1, and the original is never touched.
-const { ACTIONS, PLACEHOLDER, uid } = require("./model");
+const { ACTIONS, PLACEHOLDER, uid, DEFAULT_LOOK, blankGuestNetwork, sniffImage } = require("./model");
 
 const rows = (j) => (Array.isArray(j) ? j : (j && (j.data || j.content || j.items || j.results)) || []);
 const hex = (c) => (c ? (String(c).startsWith("#") ? c : "#" + c) : c);
@@ -21,7 +21,33 @@ const FROM_ACTION = {
   IDP_AUTH_PROVIDER: (a) => ({ samlIdpProfileId: a.samlIdpProfileId }),
 };
 
-async function importWorkflow(client, id) {
+const IMAGE_KINDS = { logo: "logoImageFileName", background: "backgroundImageName", icon: "iconImageName" };
+
+// The workflow's portal look and feel, or undefined when it is still R1's default (nothing to carry over).
+async function importLook(client, id, warnings, fetchImpl = fetch) {
+  let u;
+  try { u = await client.call("GET", `/workflows/${id}/uiConfigurations`); } catch { return undefined; }
+  const colors = { ...DEFAULT_LOOK.colors, ...(u.uiColorSchema || {}) };
+  const st = u.uiStyleSchema || {};
+  const look = { welcomeTitle: u.welcomeTitle || "", welcomeName: u.welcomeName || "", colors, logoSize: st.logoSize || "MEDIUM", fontName: st.fontName || "Arial", headerFontSize: st.headerFontSize || 16, disablePoweredBy: !!st.disablePoweredBy, images: {} };
+  for (const [kind, field] of Object.entries(IMAGE_KINDS)) {
+    if (!st[field]) continue;
+    try {
+      const r = await client.call("GET", `/workflows/${id}/uiConfigurations/${kind}`);
+      const res = await fetchImpl(r.fileUrl);
+      if (!res.ok) throw new Error("download failed (" + res.status + ")");
+      const buf = Buffer.from(await res.arrayBuffer());
+      const type = sniffImage(buf);
+      if (!type) { warnings.push(`The ${kind} image is in a format the editor doesn't recognise, so it was not copied.`); continue; }
+      if (buf.length > 5 * 1024 * 1024) { warnings.push(`The ${kind} image is over 5 MB, so it was not copied. Add it again after resizing.`); continue; }
+      look.images[kind] = { filename: `${kind}.${(type.split("/")[1] || "png").replace("svg+xml", "svg").replace("jpeg", "jpg")}`, type, base64: buf.toString("base64") };
+    } catch (e) { warnings.push(`The ${kind} image could not be copied (${e.message}). Add it again in the look and feel.`); }
+  }
+  const isDefault = !look.welcomeTitle && !look.welcomeName && JSON.stringify(colors) === JSON.stringify(DEFAULT_LOOK.colors) && look.logoSize === "MEDIUM" && look.fontName === "Arial" && look.headerFontSize === 16 && !look.disablePoweredBy && !Object.keys(look.images).length;
+  return isDefault ? undefined : look;
+}
+
+async function importWorkflow(client, id, fetchImpl) {
   const call = (m, p) => client.call(m, p);
   const wf = await call("GET", `/workflows/${id}`);
   const steps = rows(await call("GET", `/workflows/${id}/steps`));
@@ -69,9 +95,10 @@ async function importWorkflow(client, id) {
   }
   const start = by[wf.startStepId];
   const body = start ? await chain(start) : [];
+  const look = await importLook(client, id, warnings, fetchImpl);
   if (wf.status === "INVALID") warnings.push("R1 reports the original workflow as INVALID" + ((wf.statusReasons || []).length ? ": " + wf.statusReasons.map((r) => r.statusReason).join("; ") : "") + ". The copy may need the same fixes.");
   return {
-    workflow: { name: `${wf.name} (copy)`, description: wf.description || `Copy of the RUCKUS One workflow “${wf.name}”`, steps: body, source: { r1: id, r1Name: wf.name } },
+    workflow: { name: `${wf.name} (copy)`, description: wf.description || `Copy of the RUCKUS One workflow “${wf.name}”`, steps: body, ...(look ? { look } : {}), source: { r1: id, r1Name: wf.name } },
     warnings,
   };
 }
@@ -98,4 +125,20 @@ async function importCertTemplate(client, id) {
   };
 }
 
-module.exports = { importWorkflow, importCertTemplate, FROM_ACTION };
+// An existing guest network as an editable form object (kind: "guestNetwork").
+async function importGuestNetwork(client, id) {
+  const n = await client.call("GET", `/wifiNetworks/${id}`);
+  if (n.type !== "guest") throw Object.assign(new Error("That Wi-Fi network is not a guest network."), { status: 400 });
+  const p = n.guestPortal || {}, pg = p.guestPage || {}, w = n.wlan || {}, warnings = [];
+  const g = { ...blankGuestNetwork(), name: `${n.name} (copy)`, ssid: "", description: n.description || "", guestNetworkType: p.guestNetworkType || "GuestPass", wlanSecurity: ["None", "OWE"].includes(w.wlanSecurity) ? w.wlanSecurity : "None", vlanId: w.vlanId || 1,
+    title: pg.title || "", tagLine: pg.tagLine || "", welcomeMessage: pg.welcomeMessage || "", termsAndConditions: pg.termsAndConditions || "",
+    hostDomains: (p.hostGuestConfig || {}).hostDomains || [], hostDurationChoices: ((p.hostGuestConfig || {}).hostDurationChoices || []).map(String),
+    maxDevices: p.maxDevices || 1, userSessionTimeout: p.userSessionTimeout || 1440, userSessionGracePeriod: p.userSessionGracePeriod == null ? 60 : p.userSessionGracePeriod, macCredentialsDuration: p.macCredentialsDuration == null ? 240 : p.macCredentialsDuration,
+    endOfDayReauthDelay: !!p.endOfDayReauthDelay, redirectUrl: p.redirectUrl || "", walledGardens: p.walledGardens || [], source: { r1: id, r1Name: n.name } };
+  warnings.push(`The Wi-Fi name (SSID) is left blank: R1 won't allow two networks with the same SSID ("${w.ssid}"), so choose a new one.`);
+  if (!["None", "OWE"].includes(w.wlanSecurity)) warnings.push(`The original uses ${w.wlanSecurity} security, which the editor can't copy yet; the copy is open.`);
+  if (["Workflow", "Cloudpath", "WISPr", "Directory", "SAML"].includes(p.guestNetworkType)) { warnings.push(`The original is a ${p.guestNetworkType} network, which the editor can't copy; the copy is a guest-pass network instead.`); g.guestNetworkType = "GuestPass"; }
+  return { guest: g, warnings };
+}
+
+module.exports = { importWorkflow, importCertTemplate, importGuestNetwork, importLook, FROM_ACTION };
