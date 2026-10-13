@@ -39,6 +39,8 @@ const ACTIONS = {
       f("passphraseFormat", "Passphrase format", "select", { choices: FORMATS.map((x) => [x, x]), showIf: { mode: "new" } }),
       f("passphraseLength", "Passphrase length", "number", { min: 8, max: 63, showIf: { mode: "new" } }),
       f("deviceCountLimit", "Devices per passphrase (blank = unlimited)", "number", { min: 1, showIf: { mode: "new" } }),
+      f("expirationType", "Passphrases expire", "select", { choices: [["", "never"], ["HOURS_AFTER_TIME", "hours after they are made"], ["DAYS_AFTER_TIME", "days after they are made"], ["WEEKS_AFTER_TIME", "weeks after they are made"], ["MONTHS_AFTER_TIME", "months after they are made"]], showIf: { mode: "new" } }),
+      f("expirationOffset", "…after how many", "number", { min: 1, showIf: { mode: "new" } }),
       f("ssids", "Wi-Fi networks to create for this pool (DPSK, WPA2)", "ssids", { showIf: { mode: "new" } }),
       f("emailNotification", "Email the passphrase", "bool"), f("smsNotification", "Text the passphrase", "bool"), f("qrCodeDisplay", "Show a QR code", "bool")] },
   MAC_REG: { label: "Register the device (MAC)", category: "onboard", help: "Adds the visitor's device to a MAC registration list.", defaults: { mode: "existing", clientEnterMacAddress: false, expirationType: "HOURS_AFTER_TIME", expirationOffset: 24 },
@@ -403,6 +405,7 @@ function validate(wf, inv = {}, opts = {}) {
         if (fd.pattern && !new RegExp(fd.pattern).test(String(v))) add("error", `"${n.name}": ${fd.label} is not valid.`, n.id);
         if (fd.type === "ref" && inv[fd.ref] && !inv[fd.ref].some((x) => x.id === v)) add("error", `"${n.name}": the chosen ${fd.label.toLowerCase()} no longer exists in R1.`, n.id, fixable ? "createMissing" : undefined);
       }
+      if (n.type === "DPSK" && n.params.mode === "new" && n.params.expirationType && !(Number(n.params.expirationOffset) >= 1)) add("error", `"${n.name}": say how many ${String(n.params.expirationType).split("_")[0].toLowerCase()} until the passphrases expire.`, n.id);
       if (n.type === "DPSK" && n.params.mode === "new" && n.params.newName) {
         if (find(inv.dpskPools, n.params.newName)) add("error", `"${n.name}": a DPSK pool named "${n.params.newName}" already exists: choose it instead of creating it.`, n.id);
         if (newPools.has(lc(n.params.newName))) add("warn", `"${n.name}": the pool "${n.params.newName}" is created by an earlier step and reused here.`, n.id);
@@ -514,7 +517,7 @@ function toBuildNodes(steps, inv = {}) {
       case "DPSK": {
         r1 = { actionType: "DPSK", name, emailNotification: !!p.emailNotification, smsNotification: !!p.smsNotification, qrCodeDisplay: !!p.qrCodeDisplay };
         if (p.mode === "existing") { const pool = (inv.dpskPools || []).find((x) => x.id === p.dpskPoolId); r1.dpskPoolId = p.dpskPoolId; r1.identityGroupId = pool && pool.identityGroupId; ref = { pool: pool ? pool.name : p.dpskPoolId }; }
-        else ref = { pool: p.newName, spec: { passphraseFormat: p.passphraseFormat, passphraseLength: Number(p.passphraseLength) || 12, deviceCountLimit: p.deviceCountLimit ? Number(p.deviceCountLimit) : undefined, ssids: (p.ssids || []).filter((s) => s.ssid).map((s) => ({ ssid: s.ssid, vlan: s.vlan ? Number(s.vlan) : undefined })) } };
+        else ref = { pool: p.newName, spec: { passphraseFormat: p.passphraseFormat, passphraseLength: Number(p.passphraseLength) || 12, deviceCountLimit: p.deviceCountLimit ? Number(p.deviceCountLimit) : undefined, expirationType: p.expirationType || undefined, expirationOffset: p.expirationType ? Number(p.expirationOffset) : undefined, ssids: (p.ssids || []).filter((s) => s.ssid).map((s) => ({ ssid: s.ssid, vlan: s.vlan ? Number(s.vlan) : undefined })) } };
         break;
       }
       case "MAC_REG": {

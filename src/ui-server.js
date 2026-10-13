@@ -16,6 +16,7 @@ const { loadInventory } = require("./inventory");
 const { ACTIONS, fromPlan, validate, toBuildWorkflow, blankWorkflow, createMissing, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, GUEST_FIELDS, blankGuestNetwork, validateGuestNetwork, LOOK_COLORS, DEFAULT_LOOK, guestFromPlan, LOGIC_FIELDS, LOGIC_OPS, lookFromCloudpath } = require("./model");
 const { importWorkflow, importCertTemplate, importGuestNetwork } = require("./r1import");
 const { appendCreated } = require("./ledger");
+const { samples } = require("./samples");
 
 const NAME = /^[\w .()-]{1,80}$/;
 
@@ -99,7 +100,7 @@ function createUiServer({ client = null, crawl = null, mapping = {}, root = path
   const routes = {
     "GET /api/state": async () => ({
       schema: ACTIONS, templateFields: TEMPLATE_FIELDS, blankTemplate: blankTemplate(), guestFields: GUEST_FIELDS, blankGuest: blankGuestNetwork(), lookColors: LOOK_COLORS, defaultLook: DEFAULT_LOOK, logicFields: LOGIC_FIELDS, logicOps: LOGIC_OPS, inventory: await getInv(), live: !!client, hasCloudpath: !!crawl,
-      cloudpath: await cloudpathModels(), drafts: listDrafts(), blank: blankWorkflow(),
+      cloudpath: await cloudpathModels(), drafts: listDrafts(), blank: blankWorkflow(), samples: samples(),
     }),
     "POST /api/refresh": async () => ({ inventory: await getInv(true) }),
     "POST /api/validate": async (b) => ({ issues: validate(b.workflow, await getInv(), opts(b.options)) }),

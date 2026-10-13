@@ -98,7 +98,7 @@ class Builder {
     // R1 creates an identity group for every new pool ("<name>_auto-generated-from-dpsk_..."); use that one.
     const body = clean({ name, passphraseFormat: FORMATS[this.opts.format] || hint.passphraseFormat || "MOST_SECURED",
       passphraseLength: hint.passphraseLength || src.passphraseLength || 12, policyDefaultAccess: src.defaultAccess ? /accept/i.test(src.defaultAccess) : true,
-      deviceCountLimit: src.deviceLimit ? Number(src.deviceLimit) : null });
+      deviceCountLimit: src.deviceLimit ? Number(src.deviceLimit) : null, expirationType: hint.expirationType || null, expirationOffset: hint.expirationType ? hint.expirationOffset : null });
     const pool = await this.api.write("POST", "/dpskServices", body);
     let poolId = idOf(pool), groupId = "dry-group";
     if (this.api.apply) {

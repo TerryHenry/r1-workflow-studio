@@ -297,6 +297,11 @@ function renderLeft() {
       h("span", { class: "pill " + (w._issues ? "bad" : "ok") }, w._issues ? w._issues + " to fix" : "ready")))));
     L.append(h("p", { class: "hint" }, "Steps Cloudpath has but R1 doesn't show as red dashed cards. Replace or delete them."));
   }
+  if ((S.samples || []).length) {
+    L.append(h("h2", {}, "Samples"));
+    L.append(h("div", { class: "list" }, S.samples.map((x) => h("button", { class: S.source === "sample:" + x.id ? "on" : "", title: x.blurb, onclick: () => openWorkflow(clone(x.workflow), "sample:" + x.id) }, h("span", {}, x.name)))));
+    L.append(h("p", { class: "hint" }, "Open one, click through it with Try it, and change it. Nothing is created until you preview and apply."));
+  }
   L.append(h("h2", {}, "Drafts"));
   L.append(h("div", { class: "list" }, S.drafts.length ? S.drafts.map((d) => h("button", { class: S.source === "d:" + d ? "on" : "", onclick: () => loadDraft(d) }, h("span", {}, d), h("span", { class: "hint", title: "Delete draft", onclick: (e) => { e.stopPropagation(); delDraft(d); } }, "✕"))) : h("span", { class: "empty" }, "No drafts yet")));
   L.append(h("h2", {}, "Workflows in RUCKUS One"));
@@ -407,6 +412,7 @@ function renderStep(R) {
     R.append(h("div", { class: "field" }, h("label", {}, "Description"), h("textarea", { oninput: (e) => { S.wf.description = e.target.value; changed(false); } }, S.wf.description || "")));
     R.append(h("div", { class: "note" }, "Click a step to configure it. Use + to add steps, drag a step onto a + to move it, double-click a step to rename it."));
     if (S.wf.source && S.wf.source.cloudpath) R.append(h("div", { class: "note" }, "Converted from Cloudpath workflow “" + S.wf.source.cloudpath + "”. Names and settings come from Cloudpath; check each step."));
+    if (S.wf.source && S.wf.source.sample) R.append(h("div", { class: "note" }, h("b", {}, "Sample. "), S.wf.source.sampleNote, " Steps marked in red need something only you can supply (an LDAP profile, a certificate authority)."));
     if (S.wf.source && S.wf.source.r1) R.append(h("div", { class: "note" }, "A copy of the RUCKUS One workflow “" + S.wf.source.r1Name + "”. Saving creates a new workflow with the new name; the original is not changed."));
     for (const m of S.importNotes || []) R.append(h("div", { class: "note bad" }, m));
     R.append(h("div", { class: "hotkeys" }, h("kbd", {}, "Del"), " delete step  ", h("kbd", {}, "⌘/Ctrl Z"), " undo  ", h("kbd", {}, "⌘/Ctrl ⇧ Z"), " redo  ", h("kbd", {}, "↑ ↓"), " select previous / next  ", h("kbd", {}, "Esc"), " deselect"));
@@ -672,6 +678,7 @@ function drawPhone() {
       const nets = p.mode === "new" ? (p.ssids || []).map((x) => x.ssid).filter(Boolean) : []; para(nets.length ? "Network: " + nets.join(", ") : "Network: the Wi-Fi network linked to the pool " + (pool || "(choose a pool)"));
       body.append(h("div", { class: "pass" }, simSample(p.mode === "new" ? p.passphraseFormat : "MOST_SECURED", p.mode === "new" ? p.passphraseLength : 12, node.id)));
       if (p.qrCodeDisplay) body.append(h("div", { class: "qr", title: "Sample QR code" }));
+      if (p.mode === "new" && p.expirationType) para(`This password works for ${p.expirationOffset || "?"} ${String(p.expirationType).split("_")[0].toLowerCase()}.`, "hint");
       if (p.emailNotification || p.smsNotification) para("We also sent it by " + [p.emailNotification && "email", p.smsNotification && "text message"].filter(Boolean).join(" and ") + ".", "hint");
       body.append(back(), btn("Done", () => go())); break;
     }
@@ -995,7 +1002,7 @@ $("#btnUndo").addEventListener("click", undo); $("#btnRedo").addEventListener("c
 (async function init() {
   try {
     const st = await api("/api/state");
-    Object.assign(S, { schema: st.schema, inv: st.inventory, cloudpath: st.cloudpath, drafts: st.drafts, blank: st.blank, live: st.live, tplFields: st.templateFields, blankTpl: st.blankTemplate, guestFields: st.guestFields, blankGuest: st.blankGuest, logicFields: st.logicFields, logicOps: st.logicOps, lookColors: st.lookColors, defaultLook: st.defaultLook });
+    Object.assign(S, { schema: st.schema, inv: st.inventory, cloudpath: st.cloudpath, drafts: st.drafts, samples: st.samples, blank: st.blank, live: st.live, tplFields: st.templateFields, blankTpl: st.blankTemplate, guestFields: st.guestFields, blankGuest: st.blankGuest, logicFields: st.logicFields, logicOps: st.logicOps, lookColors: st.lookColors, defaultLook: st.defaultLook });
     for (const w of S.cloudpath) { try { w._issues = (await api("/api/validate", { workflow: w, options: {} })).issues.filter((i) => i.level === "error").length; } catch { w._issues = 0; } }
     S.wf = null; renderAll();
   } catch (e) { $("#flow").append(h("p", { style: "color:var(--bad)" }, "Could not load: " + e.message)); }
