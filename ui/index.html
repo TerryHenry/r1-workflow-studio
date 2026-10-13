@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workflow Editor for RUCKUS One</title>
+<style>
+:root {
+  --bg: #f1f3f7; --panel: #ffffff; --ink: #1b2230; --muted: #5b6579; --line: #d6dbe5; --accent: #1b6ef3; --accent-ink: #ffffff; --accent-soft: #e7f0ff;
+  --ok: #167a41; --warn: #a35f00; --bad: #c0262d; --card: #ffffff; --shadow: 0 1px 2px rgba(20,30,50,.10), 0 3px 10px rgba(20,30,50,.06);
+  --basic: #4f74ad; --split: #7b4fc9; --onboard: #1b8a4b; --auth: #b8720a; --unsupported: #c0262d; --grid: #e4e8ef;
+  --lw: 250px; --rw: 420px; --cardw: 290px;
+}
+:root[data-theme="dark"] {
+  --bg: #11141b; --panel: #1a1f2a; --ink: #e7eaf1; --muted: #9aa3b5; --line: #2d3443; --accent: #5b9bff; --accent-ink: #0b1220; --accent-soft: #1d2a42;
+  --ok: #4cc27f; --warn: #e3a345; --bad: #ff7d7d; --card: #232a38; --shadow: 0 1px 2px rgba(0,0,0,.5);
+  --basic: #86a6dc; --split: #b494f2; --onboard: #4cc27f; --auth: #e3a345; --unsupported: #ff7d7d; --grid: #1c212c;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11141b; --panel: #1a1f2a; --ink: #e7eaf1; --muted: #9aa3b5; --line: #2d3443; --accent: #5b9bff; --accent-ink: #0b1220; --accent-soft: #1d2a42;
+    --ok: #4cc27f; --warn: #e3a345; --bad: #ff7d7d; --card: #232a38; --shadow: 0 1px 2px rgba(0,0,0,.5);
+    --basic: #86a6dc; --split: #b494f2; --onboard: #4cc27f; --auth: #e3a345; --unsupported: #ff7d7d; --grid: #1c212c;
+  }
+}
+:root.compact { --cardw: 230px; }
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); display: grid; grid-template-rows: auto 1fr; overflow: hidden; }
+button { font: inherit; color: inherit; cursor: pointer; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 12px; white-space: nowrap; }
+.btn:hover:not([disabled]) { border-color: var(--accent); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn.danger { color: var(--bad); }
+.btn.small { padding: 2px 8px; font-size: 12px; border-radius: 6px; }
+.btn.icon { padding: 5px 9px; min-width: 32px; }
+input[type=text], input[type=number], select, textarea { width: 100%; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+textarea { min-height: 70px; resize: vertical; }
+input:focus, select:focus, textarea:focus, button:focus-visible, .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+header { display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+header h1 { font-size: 15px; margin: 0; white-space: nowrap; }
+header .grow { flex: 1; min-width: 240px; display: flex; gap: 6px; align-items: center; }
+header .grow input[type=text] { max-width: 280px; font-weight: 600; }
+header .sep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 2px; }
+.pill { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.pill.ok { color: var(--ok); border-color: var(--ok); } .pill.bad { color: var(--bad); border-color: var(--bad); } .pill.warn { color: var(--warn); border-color: var(--warn); }
+main { display: grid; grid-template-columns: var(--lw) minmax(0, 1fr) var(--rw); min-height: 0; position: relative; }
+#left { background: var(--panel); border-right: 1px solid var(--line); overflow: auto; padding: 12px; }
+body.noleft #left { display: none; } body.noleft main { grid-template-columns: minmax(0, 1fr) var(--rw); }
+#left h2, #right h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 0 6px; }
+#left h2:first-child { margin-top: 0; }
+.list button { display: flex; width: 100%; text-align: left; gap: 6px; justify-content: space-between; align-items: center; border: 1px solid transparent; background: transparent; border-radius: 6px; padding: 5px 8px; }
+.list button:hover { background: var(--bg); } .list button.on { background: var(--accent-soft); border-color: var(--accent); }
+#canvas { overflow: auto; position: relative; background-color: var(--bg); background-image: radial-gradient(var(--grid) 1px, transparent 1px); background-size: 18px 18px; }
+#zoomwrap { margin: 0 auto; padding: 0; }
+.flow { display: flex; flex-direction: column; align-items: center; min-width: min-content; transform-origin: 0 0; padding: 28px 32px 60px; width: max-content; }
+.cap { font-size: 12px; font-weight: 600; padding: 3px 14px; border-radius: 99px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); }
+.link { width: 2px; height: 16px; background: var(--line); position: relative; }
+.link.arrow::after { content: ""; position: absolute; bottom: -1px; left: -4px; border: 5px solid transparent; border-top: 7px solid var(--line); border-bottom: 0; }
+.add { width: 22px; height: 22px; border-radius: 50%; border: 1px dashed var(--muted); background: var(--panel); color: var(--muted); line-height: 1; padding: 0; font-size: 15px; }
+.add:hover, .add.drop { border-color: var(--accent); color: var(--accent); border-style: solid; transform: scale(1.25); }
+.card { width: var(--cardw); background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--basic); border-radius: 10px; padding: 8px 10px 8px 10px; box-shadow: var(--shadow); cursor: pointer; text-align: left; position: relative; display: grid; grid-template-columns: 26px 1fr; column-gap: 8px; }
+.card.basic { border-left-color: var(--basic); } .card.split { border-left-color: var(--split); } .card.onboard { border-left-color: var(--onboard); } .card.auth { border-left-color: var(--auth); }
+.card.unsupported { border-left-color: var(--unsupported); border-style: dashed; border-left-style: solid; }
+.card.sel { outline: 2px solid var(--accent); outline-offset: 1px; background: var(--accent-soft); }
+.card.dragging { opacity: .4; }
+.card .ic { font-size: 18px; line-height: 1.2; text-align: center; padding-top: 2px; }
+.card .t { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.card .n { font-weight: 600; overflow-wrap: anywhere; }
+.card .n input { font-weight: 600; padding: 1px 4px; }
+.card .s { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.card .badge { position: absolute; top: 6px; right: 8px; font-size: 11px; font-weight: 700; color: var(--bad); }
+.branches { display: flex; gap: 22px; align-items: flex-start; padding-top: 14px; border-top: 2px solid var(--line); }
+.branch { display: flex; flex-direction: column; align-items: center; min-width: var(--cardw); }
+.branch .bh { border: 1px solid var(--split); color: var(--split); background: var(--panel); border-radius: 99px; padding: 2px 12px; font-weight: 600; font-size: 12px; max-width: var(--cardw); text-align: center; cursor: pointer; margin-top: -26px; }
+.empty { color: var(--muted); font-size: 12px; font-style: italic; }
+#right { background: var(--panel); border-left: 1px solid var(--line); overflow: hidden; display: grid; grid-template-rows: auto 1fr; position: relative; min-width: 0; }
+#rsz { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; }
+#rsz:hover, #rsz.on { background: var(--accent); opacity: .35; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tabs button { flex: 1; border: 0; background: transparent; padding: 9px 6px; border-bottom: 2px solid transparent; color: var(--muted); font-weight: 600; }
+.tabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
+.tabs .count { font-size: 11px; margin-left: 4px; }
+#pane { overflow: auto; padding: 12px 14px 24px; }
+.field { margin: 10px 0; } .field > label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+.field .row { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+.check { display: flex; gap: 8px; align-items: center; } .check input { width: auto; }
+.modes { display: flex; gap: 6px; flex-wrap: wrap; } .modes label { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.note { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; color: var(--muted); margin: 8px 0; }
+.note.bad { color: var(--bad); border-color: var(--bad); } .note.ok { color: var(--ok); border-color: var(--ok); }
+.issues { padding-left: 18px; margin: 6px 0; } .issues li { margin: 5px 0; cursor: pointer; }
+.issues .error { color: var(--bad); } .issues .warn { color: var(--warn); }
+.hint { font-size: 11px; color: var(--muted); }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 10px; }
+.chip { border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; background: var(--bg); font-size: 12px; } .chip b { font-size: 15px; display: block; }
+.outline { font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; white-space: pre; overflow: auto; }
+.mono { font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 260px; overflow: auto; }
+.objs { list-style: none; padding: 0; margin: 4px 0; } .objs li { padding: 3px 0; display: flex; gap: 8px; align-items: baseline; }
+.objs .k { font-size: 11px; color: var(--muted); min-width: 118px; }
+.overlay { position: fixed; inset: 0; background: rgba(8,12,20,.5); display: flex; align-items: center; justify-content: center; z-index: 20; }
+.dialog { background: var(--panel); border-radius: 12px; padding: 18px; width: min(580px, 92vw); max-height: 86vh; overflow: auto; box-shadow: 0 12px 40px rgba(0,0,0,.4); }
+.dialog h3 { margin: 0 0 8px; }
+.pal { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .pal button { text-align: left; border: 1px solid var(--line); border-left: 4px solid var(--basic); background: var(--bg); border-radius: 8px; padding: 8px; }
+.pal button.split { border-left-color: var(--split); } .pal button.onboard { border-left-color: var(--onboard); } .pal button.auth { border-left-color: var(--auth); }
+.pal b { display: block; } .pal span { font-size: 12px; color: var(--muted); }
+.zoom { display: flex; align-items: center; gap: 4px; }
+.hotkeys { font-size: 11px; color: var(--muted); margin-top: 16px; line-height: 2; }
+kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; font-size: 11px; background: var(--bg); }
+@media (max-width: 1000px) { main { grid-template-columns: 1fr !important; grid-template-rows: auto minmax(300px, 1fr) auto; } #left { max-height: 180px; } #right { max-height: 55vh; } #rsz { display: none; } body { overflow: auto; } }
+</style>
+</head>
+<body>
+<header>
+  <button class="btn icon" id="btnLeft" title="Show or hide the workflow list" aria-label="Show or hide the workflow list">☰</button>
+  <h1>Workflow Editor</h1> <span class="pill" id="conn">connecting…</span>
+  <div class="grow">
+    <input type="text" id="wfName" placeholder="Workflow name" aria-label="Workflow name">
+    <input type="text" id="prefix" placeholder="Name prefix" aria-label="Name prefix (optional)" style="max-width:120px">
+    <select id="venue" aria-label="Venue for new Wi-Fi networks" title="Venue for new Wi-Fi networks" style="max-width:220px"></select>
+  </div>
+  <span id="status" class="pill"></span>
+  <span class="sep"></span>
+  <button class="btn icon" id="btnUndo" title="Undo (Ctrl/⌘ Z)" aria-label="Undo">↶</button>
+  <button class="btn icon" id="btnRedo" title="Redo (Ctrl/⌘ Shift Z)" aria-label="Redo">↷</button>
+  <span class="zoom"><button class="btn icon" id="zOut" title="Zoom out" aria-label="Zoom out">−</button><button class="btn small" id="zFit" title="Fit the whole workflow in view">Fit</button><button class="btn icon" id="zIn" title="Zoom in" aria-label="Zoom in">＋</button></span>
+  <button class="btn icon" id="btnCompact" title="Compact or roomy step cards" aria-label="Compact cards">▤</button>
+  <button class="btn icon" id="btnTheme" title="Theme: automatic, light, dark" aria-label="Theme">◐</button>
+  <span class="sep"></span>
+  <button class="btn" id="btnSave">Save draft</button>
+  <button class="btn" id="btnPreview">Preview</button>
+  <button class="btn primary" id="btnApply" disabled>Apply…</button>
+</header>
+<main>
+  <aside id="left"></aside>
+  <section id="canvas" aria-label="Workflow"><div id="zoomwrap"><div class="flow" id="flow"></div></div></section>
+  <aside id="right"><div id="rsz" title="Drag to resize"></div>
+    <div class="tabs" role="tablist"><button id="tabStep" role="tab">Step</button><button id="tabProblems" role="tab">Problems</button><button id="tabPreview" role="tab">Preview</button></div>
+    <div id="pane"></div>
+  </aside>
+</main>
+<div id="modal"></div>
+
+<script>
+"use strict";
+const TOKEN = "__TOKEN__";
+const $ = (s, el = document) => el.querySelector(s);
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (k === "value") e.value = v;
+    else if (v === true) e.setAttribute(k, "");
+    else if (v !== false && v != null) e.setAttribute(k, v);
+  }
+  for (const kid of kids.flat(3)) { if (kid == null || kid === false) continue; e.append(kid.nodeType ? kid : document.createTextNode(String(kid))); }
+  return e;
+}
+async function api(path, body, method) {
+  const r = await fetch(path, { method: method || (body === undefined ? "GET" : "POST"), headers: { "content-type": "application/json", "x-ui-token": TOKEN }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const uid = () => "n" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-3);
+const store = { get(k, d) { try { const v = localStorage.getItem("wfe." + k); return v == null ? d : v; } catch { return d; } }, set(k, v) { try { localStorage.setItem("wfe." + k, v); } catch {} } };
+
+const S = { schema: {}, inv: {}, cloudpath: [], drafts: [], wf: null, tpl: null, tplFields: [], blankTpl: null, importNotes: null, source: "", selected: null, issues: [], previewKey: null, preview: null, applied: null, dirty: false, live: false, tab: "step", zoom: 1, fit: true };
+const ICON = { AUP: "📜", DATA_PROMPT: "📝", DISPLAY_MESSAGE: "💬", USER_SELECTION_SPLIT: "⑂", DPSK: "🔑", MAC_REG: "📱", CERT_TEMPLATE: "🎫", PASSPHRASE: "🔐", CAPTIVE_PORTAL: "🌐", LDAP_AUTH_PROVIDER: "🛂", IDP_AUTH_PROVIDER: "🛂", UNSUPPORTED: "⛔" };
+
+/* ---------- model helpers ---------- */
+function eachNode(steps, fn, parent) { steps.forEach((n, i) => { fn(n, steps, i, parent); (n.options || []).forEach((o) => eachNode(o.steps, fn, n)); }); }
+function findNode(id) { let r = null; eachNode(S.wf.steps, (n, arr, i, p) => { if (n.id === id) r = { node: n, arr, index: i, parent: p }; }); return r; }
+function newNode(type, name) {
+  const spec = S.schema[type];
+  const node = { id: uid(), type, name: name || spec.label, params: clone(spec.defaults) };
+  if (type === "USER_SELECTION_SPLIT") node.options = [{ id: uid(), name: "Option 1", text: "", steps: [] }, { id: uid(), name: "Option 2", text: "", steps: [] }];
+  return node;
+}
+function withNewIds(n) { const c = clone(n); (function re(x) { x.id = uid(); (x.options || []).forEach((o) => { o.id = uid(); o.steps.forEach(re); }); })(c); return c; }
+const options = () => ({ prefix: $("#prefix").value.trim(), venueId: $("#venue").value || undefined });
+const key = () => JSON.stringify(S.tpl ? { template: S.tpl, options: options() } : { workflow: S.wf, options: options() });
+const fullName = () => (options().prefix || "") + (S.tpl ? S.tpl.name : S.wf ? S.wf.name : "");
+function nameOf(list, id) { const x = (list || []).find((i) => i.id === id); return x ? x.name : null; }
+const issuesFor = (id) => S.issues.filter((i) => i.nodeId === id);
+const errorCount = () => S.issues.filter((i) => i.level === "error").length;
+
+function summarize(n) {
+  const p = n.params || {}, inv = S.inv;
+  switch (n.type) {
+    case "AUP": case "DISPLAY_MESSAGE": return p.title || "";
+    case "DATA_PROMPT": return (p.variables || []).map((v) => v.label).join(", ");
+    case "USER_SELECTION_SPLIT": return (n.options || []).length + " options: " + (n.options || []).map((o) => o.name).join(" / ");
+    case "DPSK": return p.mode === "new" ? `New pool “${p.newName || "…"}”, ${p.passphraseLength || 12} chars` + ((p.ssids || []).length ? `, ${(p.ssids || []).length} Wi-Fi network(s)` : "") : "Pool: " + (nameOf(inv.dpskPools, p.dpskPoolId) || "(choose one)");
+    case "MAC_REG": return p.mode === "new" ? `New list “${p.newName || "…"}”` : "List: " + (nameOf(inv.macPools, p.macRegListId) || "(choose one)");
+    case "CERT_TEMPLATE": return p.mode === "new" ? `New template “${p.newName || "…"}”` : "Template: " + (nameOf(inv.certTemplates, p.certTemplateId) || "(choose one)");
+    case "PASSPHRASE": return "Network: " + (nameOf(inv.networks, p.networkId) || "(choose one)");
+    case "CAPTIVE_PORTAL": return p.redirectUrl || "";
+    case "UNSUPPORTED": return "No R1 equivalent";
+    default: return "";
+  }
+}
+function outlineLines(steps, indent = "") {
+  const out = [];
+  steps.forEach((n) => {
+    const spec = S.schema[n.type], what = n.type === "UNSUPPORTED" ? "⛔ (no R1 equivalent)" : (ICON[n.type] || "•") + " " + (spec ? spec.label : n.type);
+    out.push(`${indent}${what}: ${n.name}` + (summarize(n) && n.type !== "UNSUPPORTED" ? `  — ${summarize(n)}` : ""));
+    (n.options || []).forEach((o) => { out.push(`${indent}   ⑂ If “${o.name}”`); out.push(...outlineLines(o.steps, indent + "      ")); if (!o.steps.length) out.push(`${indent}      (nothing yet)`); });
+  });
+  return out;
+}
+
+/* ---------- history (undo / redo) ---------- */
+const H = { undo: [], redo: [], last: null, t: 0 };
+function histInit() { H.undo = []; H.redo = []; H.last = JSON.stringify(S.wf); }
+function histPush(structural) {
+  const cur = JSON.stringify(S.wf); if (cur === H.last) return;
+  const now = Date.now();
+  if (structural || now - H.t > 800) { H.undo.push(H.last); if (H.undo.length > 100) H.undo.shift(); }
+  H.t = now; H.redo = []; H.last = cur;
+}
+function restore(str) { S.wf = JSON.parse(str); H.last = str; if (S.selected && !findNode(S.selected)) S.selected = null; S.dirty = true; renderAll(); validate(); }
+function undo() { if (!H.undo.length) return; H.redo.push(JSON.stringify(S.wf)); restore(H.undo.pop()); }
+function redo() { if (!H.redo.length) return; H.undo.push(JSON.stringify(S.wf)); restore(H.redo.pop()); }
+
+/* ---------- rendering ---------- */
+function renderAll() { renderHeader(); renderLeft(); renderCanvas(); renderRight(); }
+
+function renderHeader() {
+  const cur0 = S.tpl || S.wf; if ($("#wfName") !== document.activeElement) $("#wfName").value = cur0 ? cur0.name : "";
+  const vs = $("#venue"), cur = vs.value;
+  vs.replaceChildren(h("option", { value: "" }, "New Wi-Fi networks: no venue"), ...(S.inv.venues || []).map((v) => h("option", { value: v.id, selected: v.id === cur }, "New Wi-Fi networks on: " + v.name)));
+  const errors = errorCount(), warns = S.issues.filter((i) => i.level === "warn").length, st = $("#status");
+  st.className = "pill " + (!cur0 ? "" : errors ? "bad" : warns ? "warn" : "ok");
+  st.textContent = !cur0 ? "" : errors ? errors + " problem" + (errors > 1 ? "s" : "") : warns ? warns + " warning" + (warns > 1 ? "s" : "") : "No problems";
+  const c = $("#conn"); c.className = "pill " + (S.live ? "ok" : "warn"); c.textContent = S.live ? "connected to RUCKUS One" : "offline";
+  const fresh = S.preview && S.previewKey === key() && !S.preview.error && !S.preview.issues.some((i) => i.level === "error");
+  $("#btnApply").disabled = !(fresh && S.live);
+  $("#btnApply").title = !S.live ? "Not connected to RUCKUS One" : fresh ? "Create this in RUCKUS One" : "Preview this exact workflow first";
+  $("#btnPreview").disabled = !cur0; $("#btnSave").disabled = !cur0;
+  $("#btnUndo").disabled = !!S.tpl || !H.undo.length; $("#btnRedo").disabled = !!S.tpl || !H.redo.length;
+  $("#btnCompact").style.borderColor = document.documentElement.classList.contains("compact") ? "var(--accent)" : "";
+  const th = store.get("theme", "auto"); $("#btnTheme").textContent = th === "light" ? "☀" : th === "dark" ? "☾" : "◐";
+}
+
+function renderLeft() {
+  const L = $("#left"); L.replaceChildren();
+  L.append(h("h2", {}, "Start"));
+  L.append(h("div", { class: "list" }, h("button", { onclick: () => openWorkflow(clone(S.blank), "new") }, "＋ New blank workflow"), h("button", { onclick: () => openTemplate(clone(S.blankTpl), "new") }, "＋ New certificate template")));
+  if (S.cloudpath.length) {
+    L.append(h("h2", {}, "From Cloudpath"));
+    L.append(h("div", { class: "list" }, S.cloudpath.map((w) => h("button", { class: S.source === "cp:" + w.name ? "on" : "", onclick: () => openWorkflow(clone(w), "cp:" + w.name) }, h("span", {}, w.name),
+      h("span", { class: "pill " + (w._issues ? "bad" : "ok") }, w._issues ? w._issues + " to fix" : "ready")))));
+    L.append(h("p", { class: "hint" }, "Steps Cloudpath has but R1 doesn't show as red dashed cards. Replace or delete them."));
+  }
+  L.append(h("h2", {}, "Drafts"));
+  L.append(h("div", { class: "list" }, S.drafts.length ? S.drafts.map((d) => h("button", { class: S.source === "d:" + d ? "on" : "", onclick: () => loadDraft(d) }, h("span", {}, d), h("span", { class: "hint", title: "Delete draft", onclick: (e) => { e.stopPropagation(); delDraft(d); } }, "✕"))) : h("span", { class: "empty" }, "No drafts yet")));
+  L.append(h("h2", {}, "Workflows in RUCKUS One"));
+  const w = S.inv.workflows || [];
+  L.append(h("div", { class: "list" }, w.length ? w.map((x) => h("button", { class: S.source === "r1w:" + x.id ? "on" : "", title: "Opens an editable copy; the original is not changed", onclick: () => importFromR1("workflow", x.id) }, h("span", {}, x.name), h("span", { class: "pill " + (x.status === "VALID" ? "ok" : "warn") }, x.status === "VALID" ? "valid" : "invalid"))) : h("span", { class: "empty" }, S.live ? "none" : "offline")));
+  L.append(h("h2", {}, "Certificate templates in R1"));
+  const tl = S.inv.certTemplates || [];
+  L.append(h("div", { class: "list" }, tl.length ? tl.map((x) => h("button", { class: S.source === "r1t:" + x.id ? "on" : "", title: "Opens an editable copy; the original is not changed", onclick: () => importFromR1("template", x.id) }, h("span", {}, x.name))) : h("span", { class: "empty" }, S.live ? "none" : "offline")));
+  L.append(h("p", { class: "hint" }, "Click one to edit a copy. Saving creates a new object; the original is never changed."));
+  L.append(h("p", {}, h("button", { class: "btn small", onclick: refreshInv }, "Refresh from R1")));
+}
+
+let drag = null;
+function renderCanvas() {
+  const flow = $("#flow"); flow.replaceChildren();
+  if (S.tpl) { flow.append(templateForm()); applyZoom(); return; }
+  if (!S.wf) { flow.append(h("p", { class: "empty" }, "Open a workflow on the left, or start a blank one.")); applyZoom(); return; }
+  flow.append(h("div", { class: "cap" }, "Start"), ...steps(S.wf.steps), h("div", { class: "link arrow" }), h("div", { class: "cap" }, "End"));
+  applyZoom();
+}
+function steps(arr) {
+  const out = [h("div", { class: "link" }), addBtn(arr, 0)];
+  arr.forEach((n, i) => {
+    out.push(h("div", { class: "link arrow" }), card(n));
+    if (n.options) out.push(h("div", { class: "link" }), branches(n));
+    else out.push(h("div", { class: "link" }), addBtn(arr, i + 1));
+  });
+  return out;
+}
+function addBtn(arr, index) {
+  if (index > 0 && arr[index - 1] && arr[index - 1].options) return document.createComment("");
+  const b = h("button", { class: "add", title: "Add a step here (or drop a step on it)", "aria-label": "Add a step here", onclick: () => palette(arr, index) }, "+");
+  b.addEventListener("dragover", (e) => { if (drag) { e.preventDefault(); b.classList.add("drop"); } });
+  b.addEventListener("dragleave", () => b.classList.remove("drop"));
+  b.addEventListener("drop", (e) => { e.preventDefault(); b.classList.remove("drop"); if (drag) dropNode(drag, arr, index); });
+  return b;
+}
+function card(n) {
+  const spec = S.schema[n.type];
+  const cat = n.type === "UNSUPPORTED" ? "unsupported" : spec ? spec.category : "basic";
+  const iss = issuesFor(n.id).filter((i) => i.level === "error").length;
+  const nameEl = h("div", { class: "n", title: "Double-click to rename", ondblclick: (e) => { e.stopPropagation(); inlineRename(n, nameEl); } }, n.name);
+  const c = h("div", { class: "card " + cat + (S.selected === n.id ? " sel" : ""), tabindex: "0", role: "button", draggable: n.type === "UNSUPPORTED" ? false : true, "data-id": n.id,
+    onclick: () => select(n.id), onkeydown: (e) => { if (e.key === "Enter" && e.target === c) select(n.id); } },
+    iss ? h("span", { class: "badge", title: iss + " problem(s)" }, "⚠ " + iss) : null,
+    h("div", { class: "ic" }, ICON[n.type] || "•"),
+    h("div", {}, h("div", { class: "t" }, n.type === "UNSUPPORTED" ? "No R1 equivalent" : spec ? spec.label : n.type), nameEl, h("div", { class: "s" }, summarize(n))));
+  c.addEventListener("dragstart", (e) => { drag = n.id; c.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", n.id); } catch {} });
+  c.addEventListener("dragend", () => { drag = null; c.classList.remove("dragging"); document.querySelectorAll(".add.drop").forEach((x) => x.classList.remove("drop")); });
+  return c;
+}
+function inlineRename(n, el) {
+  const input = h("input", { type: "text", value: n.name, maxlength: 100 });
+  let finished = false;
+  const done = (save) => { if (finished) return; finished = true; if (save && input.value.trim() && input.value.trim() !== n.name) { n.name = input.value.trim(); changed(true); validate(); } else renderCanvas(); };
+  input.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Enter") done(true); if (e.key === "Escape") done(false); });
+  input.addEventListener("blur", () => done(true)); input.addEventListener("click", (e) => e.stopPropagation());
+  el.replaceChildren(input); input.focus(); input.select();
+}
+function branches(n) {
+  return h("div", { class: "branches" }, (n.options || []).map((o) => h("div", { class: "branch" },
+    h("button", { class: "bh", title: o.text || "Click to edit the options", onclick: () => select(n.id) }, o.name || "(unnamed)"),
+    steps(o.steps), h("div", { class: "link arrow" }), h("div", { class: "cap" }, "End"))));
+}
+
+/* ---------- zoom ---------- */
+function applyZoom() {
+  const flow = $("#flow"), wrap = $("#zoomwrap"), canvas = $("#canvas");
+  flow.style.transform = "none";
+  if (S.tpl) { wrap.style.width = ""; wrap.style.height = ""; $("#zFit").textContent = "Fit"; return; }
+  if (S.fit && S.wf) { const w = flow.scrollWidth, hgt = flow.scrollHeight; S.zoom = Math.max(.3, Math.min(1, (canvas.clientWidth - 12) / w, (canvas.clientHeight - 12) / hgt)); }
+  flow.style.transform = `scale(${S.zoom})`;
+  wrap.style.width = flow.scrollWidth * S.zoom + "px"; wrap.style.height = flow.scrollHeight * S.zoom + "px";
+  $("#zFit").textContent = S.fit ? "Fit" : Math.round(S.zoom * 100) + "%";
+}
+function setZoom(z) { S.fit = false; S.zoom = Math.max(.3, Math.min(1.6, z)); applyZoom(); }
+
+/* ---------- right panel ---------- */
+function setTab(t) { S.tab = t; renderRight(); }
+function renderRight() {
+  const tabs = { step: $("#tabStep"), problems: $("#tabProblems"), preview: $("#tabPreview") };
+  tabs.step.textContent = "Step"; tabs.preview.textContent = "Preview";
+  const ec = errorCount(), wc = S.issues.length - ec;
+  tabs.problems.replaceChildren("Problems", h("span", { class: "count", style: "color:" + (ec ? "var(--bad)" : wc ? "var(--warn)" : "var(--muted)") }, S.issues.length ? "(" + S.issues.length + ")" : ""));
+  for (const [k, b] of Object.entries(tabs)) { b.className = S.tab === k ? "on" : ""; b.setAttribute("aria-selected", S.tab === k); }
+  const P = $("#pane"); P.replaceChildren();
+  if (!S.wf && !S.tpl) { P.append(h("div", { class: "note" }, "Open a workflow or certificate template from the left, or start a new one. Nothing is sent to RUCKUS One until you preview and apply.")); return; }
+  if (S.tab === "problems") return renderProblems(P);
+  if (S.tab === "preview") return renderPreview(P);
+  if (S.tpl) return renderTemplateHelp(P);
+  renderStep(P);
+}
+
+function renderStep(R) {
+  const sel = S.selected && findNode(S.selected);
+  if (!sel) {
+    R.append(h("h2", {}, "Workflow"));
+    R.append(h("div", { class: "field" }, h("label", {}, "Description"), h("textarea", { oninput: (e) => { S.wf.description = e.target.value; changed(false); } }, S.wf.description || "")));
+    R.append(h("div", { class: "note" }, "Click a step to configure it. Use + to add steps, drag a step onto a + to move it, double-click a step to rename it."));
+    if (S.wf.source && S.wf.source.cloudpath) R.append(h("div", { class: "note" }, "Converted from Cloudpath workflow “" + S.wf.source.cloudpath + "”. Names and settings come from Cloudpath; check each step."));
+    if (S.wf.source && S.wf.source.r1) R.append(h("div", { class: "note" }, "A copy of the RUCKUS One workflow “" + S.wf.source.r1Name + "”. Saving creates a new workflow with the new name; the original is not changed."));
+    for (const m of S.importNotes || []) R.append(h("div", { class: "note bad" }, m));
+    R.append(h("div", { class: "hotkeys" }, h("kbd", {}, "Del"), " delete step  ", h("kbd", {}, "⌘/Ctrl Z"), " undo  ", h("kbd", {}, "⌘/Ctrl ⇧ Z"), " redo  ", h("kbd", {}, "↑ ↓"), " select previous / next  ", h("kbd", {}, "Esc"), " deselect"));
+    return;
+  }
+  const n = sel.node, spec = S.schema[n.type];
+  R.append(h("div", { style: "display:flex;justify-content:space-between;align-items:center" },
+    h("h2", { style: "margin:0" }, n.type === "UNSUPPORTED" ? "No R1 equivalent" : spec.label), h("button", { class: "btn small", onclick: () => select(null) }, "Done")));
+  if (spec) R.append(h("p", { class: "hint" }, spec.help));
+  if (n.source && n.source.notes && n.source.notes.length) R.append(h("div", { class: "note" }, h("b", {}, "From Cloudpath: "), n.source.notes.join(" ")));
+  if (n.type === "UNSUPPORTED") {
+    R.append(h("div", { class: "note" }, "Cloudpath step “" + n.name + "” can't be built in R1. Replace it with a step that does something similar, or delete it."));
+    R.append(h("div", { class: "field" }, h("label", {}, "Replace with"), h("select", { onchange: (e) => { if (e.target.value) replaceNode(n.id, e.target.value); } }, h("option", { value: "" }, "Choose a step type…"), Object.entries(S.schema).filter(([k]) => k !== "USER_SELECTION_SPLIT").map(([k, v]) => h("option", { value: k }, v.label)))));
+  } else {
+    R.append(h("div", { class: "field" }, h("label", {}, "Step name"), h("input", { type: "text", value: n.name, maxlength: 100, oninput: (e) => { n.name = e.target.value; changed(false); } })));
+    R.append(h("div", { class: "field" }, h("label", {}, "Step type"), h("select", { onchange: (e) => replaceNode(n.id, e.target.value, true) }, Object.entries(S.schema).map(([k, v]) => h("option", { value: k, selected: k === n.type }, v.label)))));
+    for (const fd of spec.fields) if (visibleField(fd, n.params)) R.append(fieldEl(n, fd));
+    if (n.options) R.append(optionsEditor(n));
+  }
+  R.append(h("div", { style: "display:flex;gap:6px;margin-top:14px;flex-wrap:wrap" },
+    h("button", { class: "btn small", onclick: () => move(n.id, -1) }, "↑ Up"), h("button", { class: "btn small", onclick: () => move(n.id, 1) }, "↓ Down"),
+    n.type !== "UNSUPPORTED" ? h("button", { class: "btn small", onclick: () => duplicate(n.id) }, "⧉ Duplicate") : null,
+    h("button", { class: "btn small danger", onclick: () => removeNode(n.id) }, "Delete")));
+  const mine = issuesFor(n.id);
+  if (mine.length) R.append(h("ul", { class: "issues", id: "stepIssues" }, mine.map((i) => h("li", { class: i.level }, i.message))));
+}
+function visibleField(fd, params) { return !fd.showIf || Object.entries(fd.showIf).every(([k, v]) => params[k] === v); }
+
+function fieldEl(n, fd) {
+  const p = n.params, set = (v, rerender) => { p[fd.key] = v; changed(!!rerender); };
+  const label = h("label", {}, fd.label + (fd.required ? " *" : ""));
+  switch (fd.type) {
+    case "bool": return h("div", { class: "field check" }, h("input", { type: "checkbox", id: "f_" + fd.key, checked: !!p[fd.key], onchange: (e) => set(e.target.checked) }), h("label", { for: "f_" + fd.key, style: "margin:0" }, fd.label));
+    case "textarea": return h("div", { class: "field" }, label, h("textarea", { maxlength: fd.max, oninput: (e) => set(e.target.value) }, p[fd.key] || ""), fd.max ? h("div", { class: "hint" }, "up to " + fd.max + " characters") : null);
+    case "number": return h("div", { class: "field" }, label, h("input", { type: "number", min: fd.min, max: fd.max, value: p[fd.key] == null ? "" : p[fd.key], oninput: (e) => set(e.target.value === "" ? undefined : Number(e.target.value)) }));
+    case "select": return h("div", { class: "field" }, label, h("select", { onchange: (e) => set(e.target.value) }, fd.choices.map(([v, t]) => h("option", { value: v, selected: v === p[fd.key] }, t))));
+    case "mode": return h("div", { class: "field" }, label, h("div", { class: "modes" }, fd.choices.map(([v, t]) => h("label", {}, h("input", { type: "radio", name: "mode_" + n.id, checked: p[fd.key] === v, style: "width:auto", onchange: () => set(v, true) }), t))));
+    case "ref": {
+      const list = S.inv[fd.ref] || [];
+      return h("div", { class: "field" }, label, h("select", { onchange: (e) => set(e.target.value || undefined, true) }, h("option", { value: "" }, list.length ? "Choose…" : "(none found in R1)"), list.map((x) => h("option", { value: x.id, selected: x.id === p[fd.key] }, x.name + (x.ssid && x.ssid !== x.name ? " (" + x.ssid + ")" : "")))));
+    }
+    case "variables": {
+      const vars = p.variables = p.variables || [];
+      const types = ["USER_NAME", "EMAIL", "PHONE", "FIRST_NAME", "LAST_NAME", "INPUT_FIELD_1", "INPUT_FIELD_2", "INPUT_FIELD_3", "INPUT_FIELD_4", "INPUT_FIELD_5", "INPUT_FIELD_6"];
+      return h("div", { class: "field" }, label, vars.map((v, i) => h("div", { class: "row" },
+        h("input", { type: "text", value: v.label, placeholder: "Label", oninput: (e) => { v.label = e.target.value; changed(false); } }),
+        h("select", { style: "max-width:130px", onchange: (e) => { v.type = e.target.value; changed(false); } }, types.map((t) => h("option", { value: t, selected: t === v.type }, t))),
+        h("button", { class: "btn small", onclick: () => { vars.splice(i, 1); changed(true); } }, "✕"))),
+        h("button", { class: "btn small", onclick: () => { vars.push({ label: "", type: "INPUT_FIELD_1" }); changed(true); } }, "＋ Add field"));
+    }
+    case "ssids": {
+      const ss = p.ssids = p.ssids || [];
+      return h("div", { class: "field" }, label, ss.map((s, i) => h("div", { class: "row" },
+        h("input", { type: "text", value: s.ssid || "", placeholder: "Network name (SSID)", oninput: (e) => { s.ssid = e.target.value; changed(false); } }),
+        h("input", { type: "number", value: s.vlan || "", placeholder: "VLAN", style: "max-width:80px", oninput: (e) => { s.vlan = e.target.value ? Number(e.target.value) : undefined; changed(false); } }),
+        h("button", { class: "btn small", onclick: () => { ss.splice(i, 1); changed(true); } }, "✕"))),
+        h("button", { class: "btn small", onclick: () => { ss.push({ ssid: "" }); changed(true); } }, "＋ Add Wi-Fi network"),
+        h("div", { class: "hint" }, "Created as DPSK networks (WPA2), linked to this pool. Put on a venue with the venue menu at the top."));
+    }
+    default: return h("div", { class: "field" }, label, h("input", { type: "text", value: p[fd.key] == null ? "" : p[fd.key], maxlength: fd.max, oninput: (e) => set(e.target.value) }));
+  }
+}
+
+function optionsEditor(n) {
+  const wrap = h("div", { class: "field" }, h("label", {}, "Options (each is a path through the workflow)"));
+  n.options.forEach((o, i) => {
+    wrap.append(h("div", { class: "note" },
+      h("div", { class: "row" }, h("input", { type: "text", value: o.name, placeholder: "Option name", oninput: (e) => { o.name = e.target.value; changed(false); } }),
+        h("button", { class: "btn small", title: "Move left", onclick: () => { if (i > 0) { n.options.splice(i - 1, 0, n.options.splice(i, 1)[0]); changed(true); } } }, "←"),
+        h("button", { class: "btn small", title: "Move right", onclick: () => { if (i < n.options.length - 1) { n.options.splice(i + 1, 0, n.options.splice(i, 1)[0]); changed(true); } } }, "→"),
+        h("button", { class: "btn small danger", title: "Remove option", onclick: () => { if (!o.steps.length || confirm("Delete this option and its steps?")) { n.options.splice(i, 1); changed(true); validate(); } } }, "✕")),
+      h("input", { type: "text", value: o.text || "", maxlength: 100, placeholder: "Text shown under the option (up to 100 characters)", oninput: (e) => { o.text = e.target.value; changed(false); } }),
+      o.criteria ? h("div", { class: "hint" }, "Cloudpath rule: " + o.criteria) : null));
+  });
+  wrap.append(h("button", { class: "btn small", onclick: () => { n.options.push({ id: uid(), name: "Option " + (n.options.length + 1), text: "", steps: [] }); changed(true); } }, "＋ Add option"));
+  return wrap;
+}
+
+function renderProblems(P) {
+  P.append(h("h2", {}, "Problems and warnings"));
+  if (S.fixNote && S.fixNote.length) P.append(h("div", { class: "note ok" }, S.fixNote.map((m) => h("div", {}, "✔ " + m))));
+  for (const m of S.importNotes || []) P.append(h("div", { class: "note bad" }, m));
+  if (!S.issues.length) { P.append(h("div", { class: "note ok" }, "No problems found.")); return; }
+  P.append(...fixControls(S.issues), issueItems(S.issues));
+  P.append(h("p", { class: "hint" }, "Errors must be fixed before Apply. Click one to jump to the step."));
+}
+function fixControls(issues) {
+  const fixable = issues.filter((i) => i.fix === "createMissing");
+  if (!fixable.length) return [];
+  return [h("div", { style: "margin:8px 0" },
+    h("button", { class: "btn primary small", onclick: () => fixMissing() }, "Create all missing objects (" + fixable.length + ")"),
+    h("div", { class: "hint", style: "margin-top:4px" }, "If R1 already has an object with the wanted name it is chosen; otherwise the step is set to create it. Nothing is sent until you apply."))];
+}
+function issueItems(issues) {
+  return h("ul", { class: "issues" }, issues.map((i) => h("li", { class: i.level, onclick: () => { if (i.nodeId) select(i.nodeId); } }, (i.level === "error" ? "✖ " : "⚠ ") + i.message,
+    i.fix === "createMissing" ? h("div", { style: "margin-top:3px" }, h("button", { class: "btn small", title: "Choose the object if R1 has it, otherwise create it", onclick: (e) => { e.stopPropagation(); fixMissing([i.nodeId]); } }, "Create if missing")) : null)));
+}
+async function fixMissing(ids) {
+  try {
+    const r = await api("/api/fix", { workflow: S.wf, nodeIds: ids });
+    S.wf = r.workflow; S.fixNote = r.changes.map((c) => c.message);
+    if (!r.changes.length) S.fixNote = ["Nothing to create: these steps already point at objects that exist."];
+    changed(true);
+    if (S.tab === "preview") { await doPreview(); } else validate();
+  } catch (e) { S.fixNote = ["Could not fix: " + e.message]; renderRight(); }
+}
+
+/* ---------- preview ---------- */
+function renderPreview(P) {
+  const Pv = S.preview, stale = Pv && S.previewKey !== key();
+  P.append(h("div", { style: "display:flex;gap:8px;align-items:center;margin-bottom:8px" }, h("button", { class: "btn primary", onclick: doPreview, id: "runPreview" }, Pv ? "Preview again" : "Preview changes"), h("span", { class: "hint" }, "Reads RUCKUS One; sends nothing.")));
+  if (S.fixNote && S.fixNote.length) P.append(h("div", { class: "note ok" }, S.fixNote.map((m) => h("div", {}, "✔ " + m))));
+  if (S.applied) P.append(h("div", { class: "note " + (S.applied.ok ? "ok" : "bad") }, S.applied.text, S.applied.undo ? h("div", { style: "margin-top:6px" }, "To remove everything this tool created: ", h("code", {}, "node bin/undo.js --yes")) : null));
+  if (!Pv) { P.append(h("div", { class: "note" }, "Preview shows the finished workflow, every object that would be created, and each call, before anything is sent.")); return; }
+  if (stale) P.append(h("div", { class: "note bad" }, "You changed the workflow after this preview. Preview again before applying."));
+  if (Pv.error) P.append(h("div", { class: "note bad" }, "The preview failed: " + Pv.error));
+  const errs = Pv.issues.filter((i) => i.level === "error");
+  if (errs.length) { P.append(h("h2", {}, "Fix these first"), ...fixControls(errs), issueItems(errs)); return; }
+  if (Pv.skipped && Pv.skipped.length) P.append(h("div", { class: "note bad" }, "Not built: " + Pv.skipped.map((s) => s.why).join("; ")));
+  const wc = Pv.willCreate || [], uses = referenced();
+  P.append(h("div", { class: "chips" }, chip(wc.length, "to create"), chip(uses.length, "reused"), chip((Pv.calls || []).filter((c) => /^\[dry\]/.test(c)).length, "calls"), chip("off", "published")));
+  P.append(h("h2", {}, S.tpl ? "The finished template" : "The finished workflow"), h("div", { class: "outline" }, S.tpl ? templateOutline(S.tpl) : (outlineLines(S.wf.steps).join("\n") || "(empty)")));
+  P.append(h("h2", {}, "Will be created in RUCKUS One"));
+  P.append(h("ul", { class: "objs" }, wc.map((x) => h("li", {}, h("span", { class: "k" }, x.kind), h("b", {}, x.name)))));
+  P.append(h("p", { class: "hint" }, S.tpl ? "A new template is created; existing templates and the certificate authority are not changed." : "Plus the workflow's actions and steps. The workflow is created unpublished: visitors can't reach it until you publish it in RUCKUS One."));
+  if (uses.length) P.append(h("h2", {}, "Already in R1: only referenced, never changed"), h("ul", { class: "objs" }, uses.map((u) => h("li", {}, h("span", { class: "k" }, u[0]), h("b", {}, u[1])))));
+  for (const n of Pv.notes || []) P.append(h("div", { class: "note" }, n));
+  const warns = Pv.issues.filter((i) => i.level === "warn");
+  if (warns.length) P.append(h("ul", { class: "issues" }, warns.map((i) => h("li", { class: "warn" }, "⚠ " + i.message))));
+  const calls = (Pv.calls || []).join("\n");
+  P.append(h("details", { style: "margin-top:10px" }, h("summary", {}, "All RUCKUS One calls, in order"), h("div", { style: "margin:6px 0" }, h("button", { class: "btn small", onclick: () => { try { navigator.clipboard.writeText(calls); } catch {} } }, "Copy")), h("div", { class: "mono" }, calls)));
+}
+const chip = (v, t) => h("div", { class: "chip" }, h("b", {}, v), t);
+function referenced() {
+  const uses = [];
+  if (S.tpl) { const ca = nameOf(S.inv.cas, S.tpl.caId); return ca ? [["certificate authority", ca]] : []; }
+  eachNode(S.wf.steps, (n) => {
+    const p = n.params || {}, inv = S.inv;
+    if (p.mode === "existing") { const ref = { DPSK: ["DPSK pool", inv.dpskPools, p.dpskPoolId], MAC_REG: ["MAC list", inv.macPools, p.macRegListId], CERT_TEMPLATE: ["certificate template", inv.certTemplates, p.certTemplateId] }[n.type]; if (ref && nameOf(ref[1], ref[2])) uses.push([ref[0], nameOf(ref[1], ref[2])]); }
+    if (n.type === "PASSPHRASE" && nameOf(inv.networks, p.networkId)) uses.push(["network", nameOf(inv.networks, p.networkId)]);
+  });
+  return uses.filter((u, i) => uses.findIndex((x) => x[1] === u[1]) === i);
+}
+
+/* ---------- certificate template form ---------- */
+function tplChanged() {
+  S.dirty = true; clearTimeout(vt); vt = setTimeout(validate, 200);
+  renderHeader(); if (S.tab === "preview") { /* stale note appears on the next render */ }
+  const sum = $("#tplSummary"); if (sum) sum.textContent = templateOutline(S.tpl);
+}
+function templateOutline(t) {
+  const ca = nameOf(S.inv.cas, t.caId) || "(choose an authority)";
+  return [`🎫 Certificate template: ${t.name}`, `   issued by: ${ca}`, `   common name: ${t.commonNamePattern || "(none)"}${t.emailPattern ? "   email: " + t.emailPattern : ""}`,
+    `   valid for ${t.validityValue || "?"} ${String(t.validityType || "").toLowerCase()}, starting ${t.startValue || 0} ${String(t.startType || "").toLowerCase()} before issue`,
+    `   ${[t.organization, t.organizationUnit, t.locality, t.state, t.country].filter(Boolean).join(", ") || "(no organization details)"}`, `   ${t.algorithm}, ${t.keyLength}-bit key`].join("\n");
+}
+function templateForm() {
+  const t = S.tpl, box = h("div", { class: "card", style: "width:min(620px,92vw);cursor:default;display:block;border-left-color:var(--onboard)" });
+  box.append(h("div", { class: "t" }, "Certificate template"), h("h3", { style: "margin:2px 0 8px" }, t.name));
+  for (const fd of S.tplFields) {
+    const label = h("label", { style: "display:block;font-size:12px;color:var(--muted);margin-bottom:3px" }, fd.label + (fd.required ? " *" : ""));
+    const set = (v) => { t[fd.key] = v; tplChanged(); };
+    let input;
+    if (fd.type === "ref") { const list = S.inv[fd.ref] || []; input = h("select", { onchange: (e) => set(e.target.value || "") }, h("option", { value: "" }, list.length ? "Choose…" : "(none found in R1)"), list.map((x) => h("option", { value: x.id, selected: x.id === t[fd.key] }, x.name))); }
+    else if (fd.type === "select") input = h("select", { onchange: (e) => set(/^\d+$/.test(e.target.value) && fd.key === "keyLength" ? Number(e.target.value) : e.target.value) }, fd.choices.map(([v, tx]) => h("option", { value: v, selected: String(v) === String(t[fd.key]) }, tx)));
+    else if (fd.type === "number") input = h("input", { type: "number", min: fd.min, value: t[fd.key] == null ? "" : t[fd.key], oninput: (e) => set(e.target.value === "" ? undefined : Number(e.target.value)) });
+    else input = h("input", { type: "text", value: t[fd.key] == null ? "" : t[fd.key], maxlength: fd.max, oninput: (e) => { if (fd.key === "name") { $("#wfName").value = e.target.value; } set(e.target.value); } });
+    box.append(h("div", { class: "field" }, label, input, fd.help ? h("div", { class: "hint" }, fd.help) : null));
+  }
+  box.append(h("h2", {}, "Summary"), h("div", { class: "outline", id: "tplSummary" }, templateOutline(t)));
+  return h("div", { style: "padding:24px" }, box);
+}
+function renderTemplateHelp(R) {
+  R.append(h("h2", {}, "Certificate template"));
+  if (S.tpl.source && S.tpl.source.r1) R.append(h("div", { class: "note" }, "A copy of the RUCKUS One template “" + S.tpl.source.r1Name + "”. Saving creates a new template with the new name; the original is not changed."));
+  for (const m of S.importNotes || []) R.append(h("div", { class: "note bad" }, m));
+  R.append(h("div", { class: "note" }, "Change the settings in the form. Use Preview to see exactly what would be created, then Apply. A new identity group with the same name is created for the template, as R1 requires."));
+}
+
+/* ---------- actions ---------- */
+let vt = null;
+function changed(structural) {
+  histPush(structural); S.dirty = true;
+  clearTimeout(vt); vt = setTimeout(validate, 200);
+  renderHeader(); renderCanvas();
+  if (structural) renderRight();
+}
+async function validate() {
+  if (!S.wf && !S.tpl) return;
+  try { S.issues = S.tpl ? (await api("/api/template/validate", { template: S.tpl, options: options() })).issues : (await api("/api/validate", { workflow: S.wf, options: options() })).issues; } catch { return; }
+  renderHeader(); renderCanvas();
+  const focus = document.activeElement, typing = focus && /INPUT|TEXTAREA|SELECT/.test(focus.tagName);
+  if (typing) {      // don't rebuild the panel under the user's cursor; just refresh the problem counts
+    const ec = errorCount(); $("#tabProblems").replaceChildren("Problems", h("span", { class: "count", style: "color:" + (ec ? "var(--bad)" : "var(--muted)") }, S.issues.length ? "(" + S.issues.length + ")" : ""));
+    const ul = $("#stepIssues"), R = $("#pane"); if (S.tab === "step" && S.selected && R) { if (ul) ul.remove(); const mine = issuesFor(S.selected); if (mine.length) R.append(h("ul", { class: "issues", id: "stepIssues" }, mine.map((i) => h("li", { class: i.level }, i.message)))); }
+  } else renderRight();
+}
+function select(id) { S.selected = id; S.tab = "step"; renderCanvas(); renderRight(); }
+function palette(arr, index) {
+  const groups = [["Messages and prompts", ["AUP", "DATA_PROMPT", "DISPLAY_MESSAGE"]], ["Choices", ["USER_SELECTION_SPLIT"]], ["Get the visitor on the network", ["DPSK", "MAC_REG", "CERT_TEMPLATE", "PASSPHRASE", "CAPTIVE_PORTAL"]], ["Sign-in", ["LDAP_AUTH_PROVIDER", "IDP_AUTH_PROVIDER"]]];
+  const list = h("div", {});
+  const draw = (q) => {
+    list.replaceChildren();
+    for (const [title, types] of groups) {
+      const shown = types.filter((t) => !q || (S.schema[t].label + " " + S.schema[t].help).toLowerCase().includes(q));
+      if (!shown.length) continue;
+      list.append(h("h2", { style: "font-size:11px;text-transform:uppercase;color:var(--muted);margin:12px 0 6px" }, title));
+      list.append(h("div", { class: "pal" }, shown.map((t) => h("button", { class: S.schema[t].category, onclick: () => { const n = newNode(t); arr.splice(index, 0, n); closeModal(); S.selected = n.id; S.tab = "step"; changed(true); validate(); } }, h("b", {}, (ICON[t] || "") + " " + S.schema[t].label), h("span", {}, S.schema[t].help)))));
+    }
+    if (!list.children.length) list.append(h("p", { class: "empty" }, "No step matches “" + q + "”."));
+  };
+  const search = h("input", { type: "text", placeholder: "Search steps…", "aria-label": "Search steps", oninput: (e) => draw(e.target.value.trim().toLowerCase()) });
+  draw("");
+  modal(h("div", { class: "dialog" }, h("h3", {}, "Add a step"), search, list, h("p", {}, h("button", { class: "btn", onclick: closeModal }, "Cancel"))));
+  search.focus();
+}
+function replaceNode(id, type, keepName) {
+  const f = findNode(id); const old = f.node;
+  if (old.type === type) return;
+  const fresh = newNode(type, keepName ? old.name : undefined);
+  fresh.id = old.id; fresh.source = old.source;
+  if (fresh.options && old.options) fresh.options = old.options;
+  else if (old.options && !fresh.options && old.options.some((o) => o.steps.length) && !confirm("Changing the type removes the choice's options and their steps. Continue?")) { renderRight(); return; }
+  f.arr[f.index] = fresh; changed(true); validate();
+}
+function move(id, d) { const f = findNode(id), j = f.index + d; if (j < 0 || j >= f.arr.length) return; f.arr.splice(j, 0, f.arr.splice(f.index, 1)[0]); changed(true); validate(); }
+function duplicate(id) { const f = findNode(id); const c = withNewIds(f.node); c.name = f.node.name + " copy"; f.arr.splice(f.index + 1, 0, c); S.selected = c.id; changed(true); validate(); }
+function removeNode(id) {
+  const f = findNode(id); let count = 0; if (f.node.options) f.node.options.forEach((o) => (count += o.steps.length));
+  if (count && !confirm("Delete this choice and the " + count + " step(s) in its options?")) return;
+  f.arr.splice(f.index, 1); S.selected = null; changed(true); validate();
+}
+function dropNode(id, arr, index) {
+  const f = findNode(id); if (!f) return;
+  const inside = (n) => (n.options || []).some((o) => o.steps === arr || o.steps.some(inside));     // a step can't be dropped inside itself
+  if (inside(f.node)) return;
+  if (arr[index - 1] && arr[index - 1].options && arr[index - 1] !== f.node) return;
+  f.arr.splice(f.index, 1);
+  const at = f.arr === arr && f.index < index ? index - 1 : index;
+  arr.splice(at, 0, f.node); S.selected = id; changed(true); validate();
+}
+async function openWorkflow(wf, source, notes) {
+  if (S.dirty && !confirm("Discard the changes to what you have open?")) return;
+  if (wf.kind === "certTemplate") return openTemplate(wf, source, notes);
+  delete wf._issues; S.tpl = null; S.importNotes = notes || null;
+  S.wf = wf; S.source = source; S.selected = null; S.preview = null; S.previewKey = null; S.applied = null; S.fixNote = null; S.dirty = false; S.tab = "step"; S.fit = true;
+  histInit();
+  try { S.issues = (await api("/api/validate", { workflow: wf, options: options() })).issues; } catch { S.issues = []; }
+  renderAll();
+}
+async function openTemplate(tpl, source, notes) {
+  if (S.dirty && !confirm("Discard the changes to what you have open?")) return;
+  S.tpl = tpl; S.wf = null; S.source = source; S.selected = null; S.preview = null; S.previewKey = null; S.applied = null; S.fixNote = null; S.importNotes = notes || null; S.dirty = false; S.tab = "step";
+  try { S.issues = (await api("/api/template/validate", { template: tpl, options: options() })).issues; } catch { S.issues = []; }
+  renderAll();
+}
+async function importFromR1(kind, id) {
+  try {
+    const r = await api("/api/import/" + kind, { id });
+    if (kind === "workflow") await openWorkflow(r.workflow, "r1w:" + id, r.warnings);
+    else await openTemplate(r.template, "r1t:" + id, r.warnings);
+  } catch (e) { alert("Could not read it from RUCKUS One: " + e.message); }
+}
+async function loadDraft(name) { try { const r = await api("/api/drafts/load", { name }); openWorkflow(r.workflow, "d:" + name); } catch (e) { alert(e.message); } }
+async function delDraft(name) { if (!confirm("Delete the draft “" + name + "”?")) return; S.drafts = (await api("/api/drafts/delete", { name })).drafts; renderLeft(); }
+async function saveDraft() {
+  const name = prompt("Save draft as:", (S.tpl || S.wf).name); if (!name) return;
+  try { S.drafts = (await api("/api/drafts", { name, workflow: S.tpl || S.wf }, "PUT")).drafts; S.dirty = false; S.source = "d:" + name; renderLeft(); } catch (e) { alert(e.message); }
+}
+async function refreshInv() { S.inv = (await api("/api/refresh", {})).inventory; renderAll(); validate(); }
+
+async function doPreview() {
+  S.tab = "preview"; const k = key();
+  renderRight(); const b = $("#runPreview"); if (b) { b.disabled = true; b.textContent = "Checking…"; }
+  try { S.preview = S.tpl ? await api("/api/template/preview", { template: S.tpl, options: options() }) : await api("/api/preview", { workflow: S.wf, options: options() }); S.previewKey = k; S.issues = S.preview.issues; S.applied = S.applied && S.applied.ok ? null : S.applied; }
+  catch (e) { S.preview = { issues: [], error: e.message, calls: [], willCreate: [] }; S.previewKey = k; }
+  renderHeader(); renderCanvas(); renderRight();
+}
+async function doApply() {
+  const P = S.preview, name = fullName();
+  const objs = (P.willCreate || []).map((x) => x.kind + ": " + x.name);
+  const input = h("input", { type: "text", placeholder: name, "aria-label": "Type the workflow name to confirm" });
+  const go = h("button", { class: "btn primary", disabled: true }, "Create in RUCKUS One");
+  input.addEventListener("input", () => { go.disabled = input.value !== name; });
+  go.addEventListener("click", async () => {
+    go.disabled = true; go.textContent = "Creating…";
+    try {
+      const r = S.tpl ? await api("/api/template/apply", { template: S.tpl, options: options(), hash: P.hash }) : await api("/api/apply", { workflow: S.wf, options: options(), hash: P.hash });
+      closeModal();
+      const status = ((r.calls || []).join("\n").match(/R1 says (\w+)/) || [])[1];
+      const bad = r.error || (r.skipped && r.skipped.length);
+      S.applied = bad ? { ok: false, text: "Not created: " + (r.error || r.skipped.map((s) => s.why).join("; ")) } :
+        { ok: true, undo: true, text: "Created in RUCKUS One" + (status ? " (R1 reports it " + status + ")" : "") + ": " + r.created.map((c) => c.kind + " “" + c.name + "”").join(", ") + (S.tpl ? "." : ". The workflow is unpublished.") + ((r.notes || []).length ? " " + r.notes.join(" ") : "") };
+      S.previewKey = null; S.dirty = false; S.inv = (await api("/api/refresh", {})).inventory;
+    } catch (e) { closeModal(); S.applied = { ok: false, text: "Apply failed: " + e.message }; }
+    S.tab = "preview"; renderAll();
+  });
+  modal(h("div", { class: "dialog" }, h("h3", {}, "Create this in RUCKUS One?"),
+    h("p", {}, S.tpl ? "This creates the certificate template “" + name + "”" + (objs.length ? ":" : ".") : "This creates the workflow “" + name + "” (unpublished) and its actions" + (objs.length ? ", plus:" : ".")),
+    objs.length ? h("ul", {}, objs.map((o) => h("li", {}, o))) : null,
+    h("p", { class: "hint" }, "If anything fails part way, what was created is removed again. Everything is listed in data/created.json and can be removed with node bin/undo.js --yes."),
+    h("div", { class: "field" }, h("label", {}, "Type the workflow name to confirm"), input),
+    h("div", { style: "display:flex;gap:8px;justify-content:flex-end" }, h("button", { class: "btn", onclick: closeModal }, "Cancel"), go)));
+  input.focus();
+}
+function modal(content) { $("#modal").replaceChildren(h("div", { class: "overlay", onclick: (e) => { if (e.target.classList.contains("overlay")) closeModal(); } }, content)); }
+function closeModal() { $("#modal").replaceChildren(); }
+
+/* ---------- view settings, resizing, shortcuts ---------- */
+function applyTheme() { const t = store.get("theme", "auto"); if (t === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", t); renderHeader(); }
+function setRW(px) { px = Math.max(320, Math.min(760, px)); document.documentElement.style.setProperty("--rw", px + "px"); store.set("rw", px); applyZoom(); }
+(function initView() {
+  applyTheme();
+  if (store.get("compact", "0") === "1") document.documentElement.classList.add("compact");
+  if (store.get("noleft", "0") === "1") document.body.classList.add("noleft");
+  const rw = Number(store.get("rw", 420)); if (rw) document.documentElement.style.setProperty("--rw", rw + "px");
+  $("#btnTheme").addEventListener("click", () => { const order = ["auto", "light", "dark"]; store.set("theme", order[(order.indexOf(store.get("theme", "auto")) + 1) % 3]); applyTheme(); });
+  $("#btnCompact").addEventListener("click", () => { const on = document.documentElement.classList.toggle("compact"); store.set("compact", on ? "1" : "0"); renderHeader(); applyZoom(); });
+  $("#btnLeft").addEventListener("click", () => { const on = document.body.classList.toggle("noleft"); store.set("noleft", on ? "1" : "0"); applyZoom(); });
+  $("#zIn").addEventListener("click", () => setZoom(S.zoom + .1)); $("#zOut").addEventListener("click", () => setZoom(S.zoom - .1));
+  $("#zFit").addEventListener("click", () => { S.fit = true; applyZoom(); });
+  $("#canvas").addEventListener("wheel", (e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); setZoom(S.zoom - e.deltaY * 0.002); } }, { passive: false });
+  window.addEventListener("resize", applyZoom);
+  const rsz = $("#rsz");
+  rsz.addEventListener("pointerdown", (e) => { rsz.setPointerCapture(e.pointerId); rsz.classList.add("on"); const move = (ev) => setRW(window.innerWidth - ev.clientX); const up = () => { rsz.classList.remove("on"); rsz.removeEventListener("pointermove", move); rsz.removeEventListener("pointerup", up); }; rsz.addEventListener("pointermove", move); rsz.addEventListener("pointerup", up); });
+  $("#tabStep").addEventListener("click", () => setTab("step")); $("#tabProblems").addEventListener("click", () => setTab("problems")); $("#tabPreview").addEventListener("click", () => setTab("preview"));
+})();
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { if ($("#modal").children.length) closeModal(); else if (S.selected) select(null); return; }
+  const typing = /INPUT|TEXTAREA|SELECT/.test((e.target.tagName || "")) || e.target.isContentEditable;
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === "z" && !typing) { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if (mod && e.key.toLowerCase() === "y" && !typing) { e.preventDefault(); redo(); return; }
+  if (typing || !S.wf || $("#modal").children.length) return;
+  if ((e.key === "Delete" || e.key === "Backspace") && S.selected) { e.preventDefault(); removeNode(S.selected); }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    const flat = []; eachNode(S.wf.steps, (n) => flat.push(n.id)); if (!flat.length) return; e.preventDefault();
+    const i = flat.indexOf(S.selected);
+    select(flat[Math.max(0, Math.min(flat.length - 1, i < 0 ? (e.key === "ArrowDown" ? 0 : flat.length - 1) : i + (e.key === "ArrowDown" ? 1 : -1)))]);
+    const el = document.querySelector(`.card[data-id="${S.selected}"]`); if (el) el.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+});
+$("#wfName").addEventListener("input", (e) => { if (S.tpl) { S.tpl.name = e.target.value; tplChanged(); } else if (S.wf) { S.wf.name = e.target.value; changed(false); } });
+$("#prefix").addEventListener("input", () => { renderHeader(); validate(); if (S.tab === "preview") renderRight(); });
+$("#venue").addEventListener("change", () => { renderHeader(); if (S.tab === "preview") renderRight(); });
+$("#btnPreview").addEventListener("click", doPreview);
+$("#btnApply").addEventListener("click", doApply);
+$("#btnSave").addEventListener("click", saveDraft);
+$("#btnUndo").addEventListener("click", undo); $("#btnRedo").addEventListener("click", redo);
+(async function init() {
+  try {
+    const st = await api("/api/state");
+    Object.assign(S, { schema: st.schema, inv: st.inventory, cloudpath: st.cloudpath, drafts: st.drafts, blank: st.blank, live: st.live, tplFields: st.templateFields, blankTpl: st.blankTemplate });
+    for (const w of S.cloudpath) { try { w._issues = (await api("/api/validate", { workflow: w, options: {} })).issues.filter((i) => i.level === "error").length; } catch { w._issues = 0; } }
+    S.wf = null; renderAll();
+  } catch (e) { $("#flow").append(h("p", { style: "color:var(--bad)" }, "Could not load: " + e.message)); }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,829 @@
+{
+ "source": "https://cloudpath.example.com",
+ "cloudpathVersion": "6.0.6056",
+ "crawledAt": "2026-10-13T12:22:10.777Z",
+ "workflows": [
+  {
+   "pk": 1906,
+   "name": "personalPassphrase",
+   "portalUrl": "/enroll/Account/NewDPSK-Test/",
+   "published": true,
+   "steps": [
+    {
+     "kind": "dpsk",
+     "number": "Step 1:",
+     "label": "Generate a DPSK in DPSK Pool: example-ssid pool .",
+     "fields": {
+      "name": "Workflow Step for DPSK Pool example-ssid pool",
+      "controllerType": "Onboard",
+      "accountDpskPoolPk": "example-ssid pool",
+      "daysOfAccess": "Unlimited",
+      "allowEmail": "0",
+      "emailTemplate": {
+       "default": "The following PSK has been assigned to you:<br/><br/>${DPSK}<br/><br/>"
+      }
+     }
+    },
+    {
+     "kind": "output",
+     "number": "Result:",
+     "label": "Move user to dempdpsk-config.",
+     "fields": {
+      "networkSourceSelection.source": "EXISTING",
+      "networkSourceSelection.existingPk": "dempdpsk-config"
+     }
+    }
+   ]
+  },
+  {
+   "pk": 1896,
+   "name": "Policy only",
+   "portalUrl": "/enroll/Account/justAUP/",
+   "published": true,
+   "steps": [
+    {
+     "kind": "aup",
+     "number": "Step 1:",
+     "label": "Require the user to accept the AUP Welcome Message and AUP - 1",
+     "fields": {
+      "name": "Welcome Message and AUP - 1",
+      "checkboxDefaultState": "1"
+     }
+    },
+    {
+     "kind": "output",
+     "number": "Result:",
+     "label": "Assign a device configuration and/or certificate.",
+     "fields": {
+      "networkSourceSelection.source": "NONE",
+      "networkSourceSelection.existingPk": "dempdpsk-config"
+     }
+    }
+   ]
+  },
+  {
+   "pk": 2416,
+   "name": "capPortal",
+   "portalUrl": "/enroll/Account/capPortal/",
+   "published": false,
+   "steps": [
+    {
+     "kind": "aup",
+     "number": "Step 1:",
+     "label": "Require the user to accept the AUP Welcome Message and AUP - 2",
+     "fields": {
+      "name": "Welcome Message and AUP - 2",
+      "checkboxDefaultState": "1"
+     }
+    },
+    {
+     "kind": "selection",
+     "number": "Step 2:",
+     "label": "First match in: Premium User Non Premium User",
+     "fields": {
+      "name": "User Type - 1st Level - 1",
+      "matchBehavior": "Use Only First Option That Matches"
+     },
+     "matchBehavior": "Use Only First Option That Matches",
+     "options": [
+      {
+       "name": "Premium User",
+       "criteria": "This option will only be available to enrollments matching all of the following criteria:\nMac Registration = Premium List.*",
+       "fields": {
+        "name": "Premium User",
+        "workflowFilter.macRegistrationRegex": "Premium List.*"
+       },
+       "steps": [
+        {
+         "kind": "output",
+         "number": "Result:",
+         "label": "Assign a device configuration and/or certificate.",
+         "fields": {
+          "networkSourceSelection.source": "EXISTING",
+          "networkSourceSelection.existingPk": "dempdpsk-config"
+         }
+        }
+       ]
+      },
+      {
+       "name": "Non Premium User",
+       "criteria": "This option will only be available to enrollments matching all of the following criteria:\nNo previous option matches.\n",
+       "steps": [
+        {
+         "kind": "selection",
+         "number": "Step 3:",
+         "label": "First match in: Free User Free/Premium Us...",
+         "fields": {
+          "name": "User Type - 2nd Level - 1",
+          "matchBehavior": "Use Only First Option That Matches"
+         },
+         "matchBehavior": "Use Only First Option That Matches",
+         "options": [
+          {
+           "name": "Free User",
+           "criteria": "This option will only be available to enrollments matching all of the following criteria:\nMac Registration = Free List.*",
+           "fields": {
+            "name": "Free User",
+            "workflowFilter.macRegistrationRegex": "Free List.*"
+           },
+           "steps": [
+            {
+             "kind": "output",
+             "number": "Result:",
+             "label": "Assign a device configuration and/or certificate.",
+             "fields": {
+              "networkSourceSelection.source": "EXISTING",
+              "networkSourceSelection.existingPk": "dempdpsk-config"
+             }
+            }
+           ]
+          },
+          {
+           "name": "Free/Premium Us...",
+           "criteria": "This option will only be available to enrollments matching all of the following criteria:\nNo previous option matches.\n",
+           "steps": [
+            {
+             "kind": "selection",
+             "number": "Step 4:",
+             "label": "All matches in: Free User Regis... Premium Registr...",
+             "fields": {
+              "name": "User Type - 3rd Level - 1",
+              "matchBehavior": "Use All Options That Match"
+             },
+             "matchBehavior": "Use All Options That Match",
+             "options": [
+              {
+               "name": "Free User Regis...",
+               "criteria": "This option will only be available to enrollments matching all of the following criteria:\nMac Registration including expired/revoked != Free List.*",
+               "fields": {
+                "name": "Free User Registration",
+                "workflowFilter.macRegistrationRegexOperator": "Does Not Match",
+                "workflowFilter.macRegistrationRegex": "Free List.*",
+                "workflowFilter.macRegistrationInvalidInclusion": "1"
+               },
+               "steps": [
+                {
+                 "kind": "registration",
+                 "number": "Step 5:",
+                 "label": "Register the MAC address for Free List - 1.",
+                 "fields": {
+                  "name": "Free List - 1",
+                  "staticDerivedDateType": "Minutes After",
+                  "dateValue": "30",
+                  "redirectBehavior": "Always redirect to authenticate user",
+                  "onNoMatchEnum": "Accept"
+                 }
+                },
+                {
+                 "kind": "output",
+                 "number": "Result:",
+                 "label": "Assign a device configuration and/or certificate.",
+                 "fields": {
+                  "networkSourceSelection.source": "EXISTING",
+                  "networkSourceSelection.existingPk": "dempdpsk-config"
+                 }
+                }
+               ]
+              },
+              {
+               "name": "Premium Registr...",
+               "criteria": "This option will be available to all enrollments.",
+               "steps": [
+                {
+                 "kind": "selection",
+                 "number": "Step 5:",
+                 "label": "All matches in: 30 min 1 hour 1 day",
+                 "fields": {
+                  "name": "Premium Time Selected Registration - 4th Level - 1",
+                  "matchBehavior": "Use All Options That Match"
+                 },
+                 "matchBehavior": "Use All Options That Match",
+                 "options": [
+                  {
+                   "name": "30 min",
+                   "criteria": "This option will be available to all enrollments.",
+                   "fields": {
+                    "name": "30 min"
+                   },
+                   "steps": [
+                    {
+                     "kind": "registration",
+                     "number": "Step 6:",
+                     "label": "Register the MAC address for Premium List - 30min - 1.",
+                     "fields": {
+                      "name": "Premium List - 30min - 1",
+                      "staticDerivedDateType": "Minutes After",
+                      "dateValue": "30",
+                      "redirectBehavior": "Always redirect to authenticate user",
+                      "onNoMatchEnum": "Accept"
+                     }
+                    },
+                    {
+                     "kind": "output",
+                     "number": "Result:",
+                     "label": "Assign a device configuration and/or certificate.",
+                     "fields": {
+                      "networkSourceSelection.source": "EXISTING",
+                      "networkSourceSelection.existingPk": "dempdpsk-config"
+                     }
+                    }
+                   ]
+                  },
+                  {
+                   "name": "1 hour",
+                   "criteria": "This option will be available to all enrollments.",
+                   "steps": [
+                    {
+                     "kind": "registration",
+                     "number": "Step 6:",
+                     "label": "Register the MAC address for Premium List - 1hr - 1.",
+                     "fields": {
+                      "name": "Premium List - 1hr - 1",
+                      "staticDerivedDateType": "Hours After",
+                      "dateValue": "1",
+                      "redirectBehavior": "Always redirect to authenticate user",
+                      "onNoMatchEnum": "Accept"
+                     }
+                    },
+                    {
+                     "kind": "output",
+                     "number": "Result:",
+                     "label": "Assign a device configuration and/or certificate.",
+                     "fields": {
+                      "networkSourceSelection.source": "EXISTING",
+                      "networkSourceSelection.existingPk": "dempdpsk-config"
+                     }
+                    }
+                   ]
+                  },
+                  {
+                   "name": "1 day",
+                   "criteria": "This option will be available to all enrollments.",
+                   "steps": [
+                    {
+                     "kind": "registration",
+                     "number": "Step 6:",
+                     "label": "Register the MAC address for Premium List - 1day - 1.",
+                     "fields": {
+                      "name": "Premium List - 1day - 1",
+                      "staticDerivedDateType": "Days After",
+                      "dateValue": "1",
+                      "redirectBehavior": "Always redirect to authenticate user",
+                      "onNoMatchEnum": "Accept"
+                     }
+                    },
+                    {
+                     "kind": "output",
+                     "number": "Result:",
+                     "label": "Assign a device configuration and/or certificate.",
+                     "fields": {
+                      "networkSourceSelection.source": "EXISTING",
+                      "networkSourceSelection.existingPk": "dempdpsk-config"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "pk": 1458,
+   "name": "Corporate",
+   "portalUrl": "/enroll/Account/Corporate/",
+   "published": true,
+   "steps": [
+    {
+     "kind": "aup",
+     "number": "Step 1:",
+     "label": "Require the user to accept the AUP Welcome Message and AUP",
+     "fields": {
+      "name": "Welcome Message and AUP",
+      "checkboxDefaultState": "1"
+     }
+    },
+    {
+     "kind": "selection",
+     "number": "Step 2:",
+     "label": "All matches in: Visitors Employees",
+     "fields": {
+      "name": "User Type",
+      "matchBehavior": "Use All Options That Match"
+     },
+     "matchBehavior": "Use All Options That Match",
+     "options": [
+      {
+       "name": "Visitors",
+       "criteria": "This option will be available to all enrollments.",
+       "fields": {
+        "name": "Visitors",
+        "title": "Sample Corp Visitors",
+        "description": "A voucher is required for visitors to utilize the Sample Corporation secure wireless network.  If you do not have a voucher, please ask your sponsor."
+       },
+       "steps": [
+        {
+         "kind": "oob",
+         "number": "Step 3:",
+         "label": "Send a verification code from Guest Vouchers",
+         "fields": {
+          "name": "Guest SMS Prompt",
+          "allowSms": "1",
+          "defaultSmsCountryCodePk": "[Not Selected]",
+          "smsTemplate": {
+           "default": "Your verification code is: ${VOUCHER}"
+          },
+          "allowEmail": "1",
+          "emailTemplate": {
+           "default": "The following verification code is required to access the network.\n\nVerification Code: ${VOUCHER}"
+          },
+          "CaptchaType": "CAPTCHA",
+          "sendButtonText": {
+           "default": "Send"
+          },
+          "otpDescription": "Voucher Code",
+          "otpListPk": "Guest Vouchers",
+          "alternateOtpListPks": "633"
+         }
+        },
+        {
+         "kind": "output",
+         "number": "Result:",
+         "label": "Move user to Example-Net and assign certificate using Guest Policy Templat....",
+         "fields": {
+          "networkSourceSelection.source": "EXISTING",
+          "networkSourceSelection.existingPk": "Example-Net"
+         }
+        }
+       ]
+      },
+      {
+       "name": "Employees",
+       "criteria": "This option will be available to all enrollments.",
+       "steps": [
+        {
+         "kind": "credprompt",
+         "number": "Step 3:",
+         "label": "Prompt the user for credentials from Example Corp DB",
+         "fields": {
+          "credentialText": {
+           "default": "Your username and password are required to access the network."
+          },
+          "CaptchaType": "Disabled",
+          "usernameAutopopulate": "0",
+          "helpLinkCaption": "Need Assistance?",
+          "helpLinkUrl": "http://it-help.example.com",
+          "usernameCase": "Do not change."
+         }
+        },
+        {
+         "kind": "concurrent",
+         "number": "Step 4:",
+         "label": "Prompt the user to remove existing certificates issued by any certificate template.",
+         "fields": {
+          "name": "Concurrent Device Reminder",
+          "certificateTemplatePk": "[Any Template]",
+          "messageHtml": {
+           "default": "You have previously registered devices with the following certificates.  Please remove any certificates that are no longer needed."
+          }
+         }
+        },
+        {
+         "kind": "output",
+         "number": "Result:",
+         "label": "Move user to Example-Net and assign certificate using BYOD Policy Template.",
+         "fields": {
+          "networkSourceSelection.source": "EXISTING",
+          "networkSourceSelection.existingPk": "Example-Net"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "pk": 1891,
+   "name": "voucherFlow",
+   "portalUrl": "/enroll/Account/voucherFlow/",
+   "published": true,
+   "steps": [
+    {
+     "kind": "aup",
+     "number": "Step 1:",
+     "label": "Require the user to accept the AUP Welcome Message and AUP - 1",
+     "fields": {
+      "name": "Welcome Message and AUP - 1",
+      "checkboxDefaultState": "1"
+     }
+    },
+    {
+     "kind": "oob",
+     "number": "Step 2:",
+     "label": "Send a verification code from voucher email & SMS",
+     "fields": {
+      "name": "Prompt for token from 'voucher email & SMS'",
+      "allowSms": "1",
+      "defaultSmsCountryCodePk": "[Not Selected]",
+      "smsTemplate": {
+       "default": "Your verification code is: ${VOUCHER}"
+      },
+      "allowEmail": "1",
+      "emailTemplate": {
+       "default": "The following verification code is required to access the network.\n\nVerification Code: ${VOUCHER}"
+      },
+      "CaptchaType": "CAPTCHA",
+      "sendButtonText": {
+       "default": "Send"
+      },
+      "otpListPk": "voucher email & SMS"
+     }
+    },
+    {
+     "kind": "output",
+     "number": "Result:",
+     "label": "Move user to example-device-100.",
+     "fields": {
+      "networkSourceSelection.source": "EXISTING",
+      "networkSourceSelection.existingPk": "example-device-100"
+     }
+    }
+   ]
+  },
+  {
+   "pk": 1557,
+   "name": "timedAccess",
+   "portalUrl": "/enroll/Account/timer/",
+   "published": true,
+   "steps": [
+    {
+     "kind": "aup",
+     "number": "Step 1:",
+     "label": "Require the user to accept the AUP Welcome Message and AUP - 1",
+     "fields": {
+      "name": "Welcome Message and AUP - 1",
+      "checkboxDefaultState": "1"
+     }
+    },
+    {
+     "kind": "selection",
+     "number": "Step 2:",
+     "label": "First match in: Premium User Non Premium User",
+     "fields": {
+      "name": "User Type - 1st Level",
+      "matchBehavior": "Use Only First Option That Matches"
+     },
+     "matchBehavior": "Use Only First Option That Matches",
+     "options": [
+      {
+       "name": "Premium User",
+       "criteria": "This option will only be available to enrollments matching all of the following criteria:\nMac Registration = Premium List.*",
+       "fields": {
+        "name": "Premium User",
+        "workflowFilter.macRegistrationRegex": "Premium List.*"
+       },
+       "steps": [
+        {
+         "kind": "output",
+         "number": "Result:",
+         "label": "Move user to Example-Net and assign certificate using Guest Policy Templat....",
+         "fields": {
+          "networkSourceSelection.source": "EXISTING",
+          "networkSourceSelection.existingPk": "Example-Net"
+         }
+        }
+       ]
+      },
+      {
+       "name": "Non Premium User",
+       "criteria": "This option will only be available to enrollments matching all of the following criteria:\nNo previous option matches.\n",
+       "steps": [
+        {
+         "kind": "selection",
+         "number": "Step 3:",
+         "label": "First match in: Free User Free/Premium Us...",
+         "fields": {
+          "name": "User Type - 2nd Level",
+          "matchBehavior": "Use Only First Option That Matches"
+         },
+         "matchBehavior": "Use Only First Option That Matches",
+         "options": [
+          {
+           "name": "Free User",
+           "criteria": "This option will only be available to enrollments matching all of the following criteria:\nMac Registration = Free List.*",
+           "fields": {
+            "name": "Free User",
+            "workflowFilter.macRegistrationRegex": "Free List.*"
+           },
+           "steps": [
+            {
+             "kind": "output",
+             "number": "Result:",
+             "label": "Assign a device configuration and/or certificate.",
+             "fields": {
+              "networkSourceSelection.source": "EXISTING",
+              "networkSourceSelection.existingPk": "dempdpsk-config"
+             }
+            }
+           ]
+          },
+          {
+           "name": "Free/Premium Us...",
+           "criteria": "This option will only be available to enrollments matching all of the following criteria:\nNo previous option matches.\n",
+           "steps": [
+            {
+             "kind": "selection",
+             "number": "Step 4:",
+             "label": "All matches in: Free User Regis... Premium Registr...",
+             "fields": {
+              "name": "User Type - 3rd Level",
+              "matchBehavior": "Use All Options That Match"
+             },
+             "matchBehavior": "Use All Options That Match",
+             "options": [
+              {
+               "name": "Free User Regis...",
+               "criteria": "This option will only be available to enrollments matching all of the following criteria:\nMac Registration including expired/revoked != Free List.*",
+               "fields": {
+                "name": "Free User Registration",
+                "workflowFilter.macRegistrationRegexOperator": "Does Not Match",
+                "workflowFilter.macRegistrationRegex": "Free List.*",
+                "workflowFilter.macRegistrationInvalidInclusion": "1"
+               },
+               "steps": [
+                {
+                 "kind": "registration",
+                 "number": "Step 5:",
+                 "label": "Register the MAC address for Free List.",
+                 "fields": {
+                  "name": "Free List",
+                  "staticDerivedDateType": "Minutes After",
+                  "dateValue": "30",
+                  "redirectBehavior": "Always redirect to authenticate user",
+                  "onNoMatchEnum": "Accept"
+                 }
+                },
+                {
+                 "kind": "output",
+                 "number": "Result:",
+                 "label": "Assign a device configuration and/or certificate.",
+                 "fields": {
+                  "networkSourceSelection.source": "EXISTING",
+                  "networkSourceSelection.existingPk": "dempdpsk-config"
+                 }
+                }
+               ]
+              },
+              {
+               "name": "Premium Registr...",
+               "criteria": "This option will be available to all enrollments.",
+               "steps": [
+                {
+                 "kind": "selection",
+                 "number": "Step 5:",
+                 "label": "All matches in: 30 min 1 hour 1 day",
+                 "fields": {
+                  "name": "Premium Time Selected Registration - 4th Level",
+                  "matchBehavior": "Use All Options That Match"
+                 },
+                 "matchBehavior": "Use All Options That Match",
+                 "options": [
+                  {
+                   "name": "30 min",
+                   "criteria": "This option will be available to all enrollments.",
+                   "fields": {
+                    "name": "30 min"
+                   },
+                   "steps": [
+                    {
+                     "kind": "registration",
+                     "number": "Step 6:",
+                     "label": "Register the MAC address for Premium List - 30min.",
+                     "fields": {
+                      "name": "Premium List - 30min",
+                      "staticDerivedDateType": "Minutes After",
+                      "dateValue": "30",
+                      "redirectBehavior": "Always redirect to authenticate user",
+                      "onNoMatchEnum": "Accept"
+                     }
+                    },
+                    {
+                     "kind": "output",
+                     "number": "Result:",
+                     "label": "Assign a device configuration and/or certificate.",
+                     "fields": {
+                      "networkSourceSelection.source": "EXISTING",
+                      "networkSourceSelection.existingPk": "dempdpsk-config"
+                     }
+                    }
+                   ]
+                  },
+                  {
+                   "name": "1 hour",
+                   "criteria": "This option will be available to all enrollments.",
+                   "steps": [
+                    {
+                     "kind": "registration",
+                     "number": "Step 6:",
+                     "label": "Register the MAC address for Premium List - 1hr.",
+                     "fields": {
+                      "name": "Premium List - 1hr",
+                      "staticDerivedDateType": "Hours After",
+                      "dateValue": "1",
+                      "redirectBehavior": "Always redirect to authenticate user",
+                      "onNoMatchEnum": "Accept"
+                     }
+                    },
+                    {
+                     "kind": "output",
+                     "number": "Result:",
+                     "label": "Assign a device configuration and/or certificate.",
+                     "fields": {
+                      "networkSourceSelection.source": "EXISTING",
+                      "networkSourceSelection.existingPk": "dempdpsk-config"
+                     }
+                    }
+                   ]
+                  },
+                  {
+                   "name": "1 day",
+                   "criteria": "This option will be available to all enrollments.",
+                   "steps": [
+                    {
+                     "kind": "registration",
+                     "number": "Step 6:",
+                     "label": "Register the MAC address for Premium List - 1day.",
+                     "fields": {
+                      "name": "Premium List - 1day",
+                      "staticDerivedDateType": "Days After",
+                      "dateValue": "1",
+                      "redirectBehavior": "Always redirect to authenticate user",
+                      "onNoMatchEnum": "Accept"
+                     }
+                    },
+                    {
+                     "kind": "output",
+                     "number": "Result:",
+                     "label": "Assign a device configuration and/or certificate.",
+                     "fields": {
+                      "networkSourceSelection.source": "EXISTING",
+                      "networkSourceSelection.existingPk": "dempdpsk-config"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "objects": {
+  "dpskPools": [
+   {
+    "name": "example-ssid pool",
+    "deviceLimit": null,
+    "ssids": [
+     "example-ssid"
+    ],
+    "defaultExpiration": null,
+    "defaultAccess": "Accept",
+    "passphraseLength": 8,
+    "passphraseFormat": null
+   },
+   {
+    "name": "newproperty-zdpool",
+    "deviceLimit": null,
+    "ssids": [
+     "newproperty"
+    ],
+    "defaultAccess": "Accept"
+   },
+   {
+    "name": "Property1",
+    "deviceLimit": null,
+    "ssids": [
+     "Cloudpath-property1"
+    ],
+    "defaultAccess": "Accept"
+   },
+   {
+    "name": "newpool",
+    "deviceLimit": null,
+    "ssids": [
+     "Cloudpath-property1"
+    ],
+    "defaultAccess": "Accept"
+   }
+  ],
+  "deviceConfigs": [
+   {
+    "name": "Example-Net",
+    "wlans": [
+     {
+      "ssid": "Example-Net",
+      "protocol": "WPA2-Enterprise (AES)",
+      "auth": "Certificate-based"
+     }
+    ]
+   },
+   {
+    "name": "dempdpsk-config",
+    "wlans": [
+     {
+      "ssid": "example-ssid",
+      "protocol": "WPA2-Personal (PSK) (AES)"
+     }
+    ]
+   },
+   {
+    "name": "example-device-100",
+    "wlans": [
+     {
+      "ssid": "example-ssid",
+      "protocol": "WPA2-Personal (PSK) (AES)"
+     }
+    ]
+   }
+  ],
+  "certTemplates": [
+   {
+    "name": "BYOD Policy Template",
+    "issuingCa": "Example Intermediate CA",
+    "cnPattern": "${USERNAME}@byod.example.com",
+    "notBefore": {
+     "value": 1,
+     "unit": "Months"
+    },
+    "notAfter": {
+     "value": 1,
+     "unit": "Years"
+    },
+    "organization": "Example Corp",
+    "locality": "Apollo Beach",
+    "state": "FL",
+    "country": "US",
+    "algorithm": "SHA-256"
+   },
+   {
+    "name": "Guest Policy Template",
+    "issuingCa": "Example Intermediate CA",
+    "cnPattern": "${USERNAME}@guest.example.com",
+    "notBefore": {
+     "value": 1,
+     "unit": "Months"
+    },
+    "notAfter": {
+     "value": 30,
+     "unit": "Days"
+    },
+    "organization": "Example Corp",
+    "locality": "Apollo Beach",
+    "state": "FL",
+    "country": "US",
+    "algorithm": "SHA-256"
+   },
+   {
+    "name": "Server Template",
+    "issuingCa": "Example Corp Root CA I",
+    "cnPattern": "${SERVER_NAME}",
+    "notBefore": {
+     "value": 1,
+     "unit": "Months"
+    },
+    "notAfter": {
+     "value": 3,
+     "unit": "Years"
+    },
+    "organization": "Example Corp",
+    "locality": "Apollo Beach",
+    "state": "FL",
+    "country": "US",
+    "algorithm": "SHA-256"
+   }
+  ]
+ }
+}

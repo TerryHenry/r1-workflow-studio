@@ -1,0 +1,303 @@
+const test = require("node:test");
+const assert = require("node:assert");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const http = require("node:http");
+const crawl = require("./fixtures/crawl.json");
+const { createUiServer } = require("../src/ui-server");
+const { fakeR1 } = require("./fake-r1");
+const { validate, newNode, blankWorkflow, fromPlan, toBuildWorkflow, outline } = require("../src/model");
+const { convertAll } = require("../src/convert");
+
+const CA_WITH_KEY = { id: "ca-1", name: "Test CA", privateKeyBase64: "-----BEGIN " + "RSA PRIVATE" + " KEY-----SECRET", commonName: "x" };
+
+async function start(opts = {}) {
+  const fake = fakeR1({ existing: { cas: [CA_WITH_KEY], tpls: [{ id: "t1", name: "Guest Policy Template", identityGroupId: "g1" }], venues: [{ id: "v1", name: "Home" }], ...opts.existing } });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "c2r-"));
+  fs.mkdirSync(path.join(root, "ui"), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, "..", "ui", "index.html"), path.join(root, "ui", "index.html"));
+  const server = createUiServer({ client: opts.offline ? null : fake.client, crawl, root, pollMs: 0 });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const port = server.address().port;
+  const call = (method, p, body, headers = {}) => new Promise((resolve, reject) => {
+    const req = http.request({ host: "127.0.0.1", port, path: p, method, headers: { "content-type": "application/json", ...headers } }, (res) => {
+      let d = ""; res.on("data", (c) => (d += c)); res.on("end", () => resolve({ status: res.statusCode, text: d, json: () => JSON.parse(d) }));
+    });
+    req.on("error", reject); if (body !== undefined) req.write(JSON.stringify(body)); req.end();
+  });
+  const post = (p, body, token = server.token) => call("POST", p, body, { "x-ui-token": token });
+  return { server, fake, root, port, call, post, close: () => new Promise((r) => server.close(r)) };
+}
+
+const goodWorkflow = () => {
+  const aup = newNode("AUP"); const cert = newNode("CERT_TEMPLATE"); cert.params.certTemplateId = "t1";
+  return { name: "Editor test", description: "", steps: [aup, cert] };
+};
+
+test("page is served with the token; other hosts and missing tokens are refused", async () => {
+  const s = await start();
+  try {
+    const page = await s.call("GET", "/");
+    assert.equal(page.status, 200);
+    assert.ok(page.text.includes(s.server.token));
+    assert.ok(!page.text.includes("__TOKEN__"));
+    const bad = await new Promise((resolve) => { const r = http.request({ host: "127.0.0.1", port: s.port, path: "/api/state", headers: { host: "evil.example.com" } }, (res) => resolve(res.statusCode)); r.end(); });
+    assert.equal(bad, 403);
+    assert.equal((await s.post("/api/preview", { workflow: goodWorkflow() }, "wrong")).status, 403);
+    assert.equal((await s.post("/api/apply", { workflow: goodWorkflow() }, "")).status, 403);
+  } finally { await s.close(); }
+});
+
+test("state has the schema, converted Cloudpath workflows and no secrets", async () => {
+  const s = await start();
+  try {
+    const st = (await s.call("GET", "/api/state")).json();
+    assert.ok(st.schema.DPSK && st.schema.CERT_TEMPLATE);
+    assert.equal(st.cloudpath.length, crawl.workflows.length);
+    assert.deepEqual(st.inventory.cas, [{ id: "ca-1", name: "Test CA" }]);
+    assert.ok(!JSON.stringify(st).includes("SECRET"), "CA private key must never be sent to the browser");
+    assert.equal(st.inventory.venues[0].name, "Home");
+  } finally { await s.close(); }
+});
+
+test("apply is refused unless this exact workflow was previewed first", async () => {
+  const s = await start();
+  try {
+    const wf = goodWorkflow();
+    const noPreview = await s.post("/api/apply", { workflow: wf, options: {}, hash: "x" });
+    assert.equal(noPreview.status, 409);
+    assert.equal(s.fake.calls.filter((c) => c.method !== "GET" && !/query/.test(c.path)).length, 0);
+
+    const pv = (await s.post("/api/preview", { workflow: wf, options: {} })).json();
+    assert.deepEqual(pv.issues.filter((i) => i.level === "error"), []);
+    assert.ok(pv.hash && pv.calls.length > 0);
+    assert.equal(s.fake.calls.filter((c) => c.method !== "GET" && !/query/.test(c.path)).length, 0, "preview must not write");
+
+    const changed = { ...wf, name: "Something else" };
+    assert.equal((await s.post("/api/apply", { workflow: changed, options: {}, hash: pv.hash })).status, 409);
+
+    const ok = await s.post("/api/apply", { workflow: wf, options: {}, hash: pv.hash });
+    assert.equal(ok.status, 200);
+    const r = ok.json();
+    assert.deepEqual(r.built, ["Editor test"]);
+    assert.ok(r.created.some((c) => c.kind === "workflow"));
+    assert.ok(s.fake.calls.some((c) => c.method === "POST" && c.path === "/workflows"));
+    assert.ok(fs.existsSync(path.join(s.root, "data", "created.json")), "created objects are recorded for undo");
+    assert.equal((await s.post("/api/apply", { workflow: wf, options: {}, hash: pv.hash })).status, 409, "a preview can be used once");
+  } finally { await s.close(); }
+});
+
+test("a workflow with problems previews as errors, with no calls, and cannot be applied", async () => {
+  const s = await start();
+  try {
+    const wf = { name: "Bad", description: "", steps: [newNode("AUP")] };   // no onboarding step
+    const pv = (await s.post("/api/preview", { workflow: wf, options: {} })).json();
+    assert.ok(pv.issues.some((i) => i.level === "error" && /onboarding/.test(i.message)));
+    assert.deepEqual(pv.calls, []);
+    assert.equal((await s.post("/api/apply", { workflow: wf, options: {}, hash: pv.hash })).status, 409);
+  } finally { await s.close(); }
+});
+
+test("offline: preview works, apply is refused", async () => {
+  const s = await start({ offline: true });
+  try {
+    const wf = goodWorkflow();
+    const pv = (await s.post("/api/preview", { workflow: wf, options: {} })).json();
+    assert.ok(pv.hash);
+    assert.equal((await s.post("/api/apply", { workflow: wf, options: {}, hash: pv.hash })).status, 409);
+  } finally { await s.close(); }
+});
+
+test("drafts: save, list, load, delete, and bad names are rejected", async () => {
+  const s = await start();
+  try {
+    const wf = goodWorkflow();
+    assert.deepEqual((await s.call("PUT", "/api/drafts", { name: "mine", workflow: wf }, { "x-ui-token": s.server.token })).json().drafts, ["mine"]);
+    assert.deepEqual((await s.post("/api/drafts/load", { name: "mine" })).json().workflow.steps.length, 2);
+    assert.equal((await s.post("/api/drafts/load", { name: "../../etc/passwd" })).status, 400);
+    assert.deepEqual((await s.post("/api/drafts/delete", { name: "mine" })).json().drafts, []);
+  } finally { await s.close(); }
+});
+
+test("a new DPSK pool with a new SSID previews the objects it would create", async () => {
+  const s = await start();
+  try {
+    const d = newNode("DPSK"); d.params.mode = "new"; d.params.newName = "pool-x"; d.params.ssids = [{ ssid: "wifi-x" }];
+    const wf = { name: "Pool flow", description: "", steps: [newNode("AUP"), d] };
+    const pv = (await s.post("/api/preview", { workflow: wf, options: { venueId: "v1" } })).json();
+    assert.deepEqual(pv.willCreate.map((x) => x.kind + ":" + x.name), ["DPSK pool:pool-x", "Wi-Fi network:wifi-x", "workflow:Pool flow"]);
+    assert.ok(pv.calls.some((c) => /PUT \/venues\/v1\/wifiNetworks/.test(c)));
+  } finally { await s.close(); }
+});
+
+test("model: validation catches missing fields, long text, duplicates and unsupported steps", () => {
+  const inv = { dpskPools: [{ id: "p", name: "Existing" }], certTemplates: [], macPools: [], workflows: [{ name: "Taken" }], cas: [], networks: [], identityGroups: [] };
+  const d = newNode("DPSK");                      // existing mode, no pool chosen
+  const issues = validate({ name: "Taken", steps: [d] }, inv);
+  assert.ok(issues.some((i) => /already exists in R1/.test(i.message)));
+  assert.ok(issues.some((i) => /Pool is required/.test(i.message)));
+  const aup = newNode("AUP"); aup.params.title = "x".repeat(101);
+  assert.ok(validate({ name: "N", steps: [aup, d] }, inv).some((i) => /over 100 characters/.test(i.message)));
+  const dup = newNode("DPSK"); dup.params.mode = "new"; dup.params.newName = "existing";
+  assert.ok(validate({ name: "N", steps: [dup] }, inv).some((i) => /already exists/.test(i.message)));
+  const split = newNode("USER_SELECTION_SPLIT"); split.options[0].name = "Same"; split.options[1].name = "same";
+  assert.ok(validate({ name: "N", steps: [split] }, inv).some((i) => /two options/.test(i.message)));
+  const after = [newNode("USER_SELECTION_SPLIT"), newNode("AUP")];
+  assert.ok(validate({ name: "N", steps: after }, inv).some((i) => /nothing can come after/.test(i.message)));
+});
+
+test("model: Cloudpath workflows convert to an editable model and back to builder nodes", () => {
+  const inv = { dpskPools: [], macPools: [], certTemplates: [{ id: "t1", name: "Guest Policy Template", identityGroupId: "g1" }, { id: "t2", name: "BYOD Policy Template", identityGroupId: "g2" }], cas: [], networks: [], workflows: [] };
+  const plan = convertAll(crawl, {});
+  const prod = fromPlan(plan.workflows.find((w) => w.name === "Corporate"), inv, crawl.objects);
+  assert.ok(outline(prod.steps).some((l) => /UNSUPPORTED: Guest SMS Prompt/.test(l)));
+  // delete the placeholders (what the user does in the editor) and the workflow validates and converts
+  const strip = (nodes) => nodes.filter((n) => n.type !== "UNSUPPORTED").map((n) => ({ ...n, options: n.options && n.options.map((o) => ({ ...o, steps: strip(o.steps) })) }));
+  const cleaned = { ...prod, steps: strip(prod.steps) };
+  assert.deepEqual(validate(cleaned, inv).filter((i) => i.level === "error"), []);
+  const bw = toBuildWorkflow(cleaned, inv);
+  assert.equal(bw.steps[1].options.length, 2);
+  assert.equal(bw.steps[1].options[0].steps[0].r1.certTemplateId, "t1");
+  const gen = fromPlan(plan.workflows.find((w) => w.name === "personalPassphrase"), { dpskPools: [], macPools: [], certTemplates: [], cas: [], networks: [], workflows: [] }, crawl.objects);
+  assert.equal(gen.steps[0].params.mode, "new");
+  assert.equal(gen.steps[0].params.newName, "example-ssid pool");
+  assert.deepEqual(gen.steps[0].params.ssids, [{ ssid: "example-ssid" }]);
+  void blankWorkflow;
+});
+
+test("create-if-missing: chooses an existing object by name, otherwise switches the step to create it", async () => {
+  const { createMissing } = require("../src/model");
+  const inv = { dpskPools: [{ id: "p1", name: "Existing Pool" }], macPools: [], certTemplates: [], cas: [{ id: "ca1", name: "Example Intermediate CA" }], networks: [], identityGroups: [], workflows: [] };
+  const a = newNode("DPSK"); a.name = "Give a pass"; a.source = { create: { kind: "DPSK", name: "existing pool" } };            // exists (case-insensitive)
+  const b = newNode("DPSK"); b.source = { create: { kind: "DPSK", name: "Brand New Pool", passphraseLength: 8, ssids: [{ ssid: "new-wifi" }] } };
+  const c = newNode("MAC_REG"); c.source = { create: { kind: "MAC_REG", name: "Visitors", expirationType: "HOURS_AFTER_TIME", expirationOffset: 4 } };
+  const d = newNode("CERT_TEMPLATE"); d.source = { create: { kind: "CERT_TEMPLATE", name: "Guest Cert", info: { issuingCa: "Example Intermediate CA", cnPattern: "${USERNAME}@x.com", validity: { type: "DAYS", value: 30 }, organization: "Org" } } };
+  const wf = { name: "W", description: "", steps: [a, b, c, d] };
+  const before = validate(wf, inv).filter((i) => i.fix === "createMissing");
+  assert.equal(before.length, 4, "each missing object is flagged as fixable");
+  const changes = createMissing(wf, inv);
+  assert.equal(changes.length, 4);
+  assert.deepEqual([a.params.mode, a.params.dpskPoolId], ["existing", "p1"]);
+  assert.deepEqual([b.params.mode, b.params.newName, b.params.passphraseLength, b.params.ssids], ["new", "Brand New Pool", 8, [{ ssid: "new-wifi" }]]);
+  assert.deepEqual([c.params.mode, c.params.expirationType, c.params.expirationOffset], ["new", "HOURS_AFTER_TIME", 4]);
+  assert.deepEqual([d.params.mode, d.params.caId, d.params.commonNamePattern, d.params.validityType, d.params.validityValue], ["new", "ca1", "$(USERNAME)@x.com", "DAYS", 30]);
+  assert.equal(validate(wf, inv).filter((i) => i.fix === "createMissing").length, 0);
+  assert.deepEqual(createMissing(wf, inv), [], "a second run changes nothing");
+  assert.deepEqual(createMissing({ steps: [a] }, inv, ["nope"]), []);
+});
+
+test("create-if-missing endpoint returns the fixed workflow and what it did", async () => {
+  const s = await start();
+  try {
+    const d = newNode("DPSK"); d.source = { create: { kind: "DPSK", name: "Pool Z", passphraseLength: 10 } };
+    const wf = { name: "W", description: "", steps: [d] };
+    const r = (await s.post("/api/fix", { workflow: wf })).json();
+    assert.equal(r.changes.length, 1);
+    assert.equal(r.workflow.steps[0].params.mode, "new");
+    assert.equal(r.workflow.steps[0].params.newName, "Pool Z");
+    assert.equal(wf.steps[0].params.mode, "existing", "the request's workflow is not modified server-side state");
+    assert.equal(s.fake.calls.filter((c) => c.method !== "GET" && !/query/.test(c.path)).length, 0, "fixing writes nothing to R1");
+  } finally { await s.close(); }
+});
+
+// ---- importing existing R1 objects (read-only) ----
+function fakeWorkflowApi() {
+  const actions = {
+    a1: { id: "a1", actionType: "AUP", title: "Hello", messageHtml: "Read this", checkboxText: "ok", checkboxDefaultState: true, checkboxHighlightColor: "FCFFB3", backButtonText: "Back", continueButtonText: "Go", aupPlainText: "be nice", useAupFile: false },
+    a2: { id: "a2", actionType: "USER_SELECTION_SPLIT", title: "Who?", displayTitle: true },
+    o1: { id: "o1", actionType: "USER_SELECTION_SPLIT_OPTION", messageHtml: "Guests" }, o2: { id: "o2", actionType: "USER_SELECTION_SPLIT_OPTION", messageHtml: "" },
+    a3: { id: "a3", actionType: "DPSK", dpskPoolId: "pool1", identityGroupId: "g1", qrCodeDisplay: true },
+    a4: { id: "a4", actionType: "CERT_TEMPLATE", certTemplateId: "t1", identityGroupId: "g2" },
+    a5: { id: "a5", actionType: "FUNCTIONAL_SPLIT" },
+  };
+  const steps = [
+    { id: "s0", type: "startStepDto", nextStepId: "s1" },
+    { id: "s1", type: "stepDto", actionType: "AUP", enrollmentActionId: "a1", label: "Terms", nextStepId: "s2" },
+    { id: "s2", type: "splitStepDto", actionType: "USER_SELECTION_SPLIT", enrollmentActionId: "a2", label: "Who" },
+    { id: "s3", type: "stepDto", actionType: "DPSK", enrollmentActionId: "a3", nextStepId: "e1" },
+    { id: "s4", type: "stepDto", actionType: "CERT_TEMPLATE", enrollmentActionId: "a4", nextStepId: "e2" },
+    { id: "e1", type: "endStepDto" }, { id: "e2", type: "endStepDto" },
+  ];
+  const options = [{ optionName: "Guests", enrollmentActionId: "o1", nextStepId: "s3" }, { optionName: "Staff", enrollmentActionId: "o2", nextStepId: "s4" }];
+  const writes = [];
+  return { writes, client: { async call(method, p) {
+    if (method !== "GET" && !/query/.test(p)) writes.push(method + " " + p);
+    if (p === "/workflows/w1") return { id: "w1", name: "Orig", status: "VALID", startStepId: "s0", description: "" };
+    if (p === "/workflows/w1/steps") return { content: steps };
+    if (p === "/workflows/w1/steps/s2/splitOptions") return { content: options };
+    const m = p.match(/^\/enrollmentActions\/(\w+)$/); if (m) return actions[m[1]];
+    if (p.startsWith("/certificateTemplates/query")) return { data: [{ id: "t1", name: "Tpl", caType: "ONBOARD", algorithm: "SHA_384", keyLength: 3072, onboard: { certificateAuthorityId: "ca1", commonNamePattern: "$(USERNAME)@x.com", notAfterType: "SPECIFIED_DATE", notAfterDate: "2030-01-01", notBeforeType: "MONTHS", notBeforeValue: 1, organizationPattern: "Org" } }] };
+    throw Object.assign(new Error("404 " + p), { status: 404 });
+  } } };
+}
+
+test("import: an R1 workflow with a split becomes an editable copy, read-only", async () => {
+  const { importWorkflow } = require("../src/r1import");
+  const f = fakeWorkflowApi();
+  const { workflow, warnings } = await importWorkflow(f.client, "w1");
+  assert.equal(workflow.name, "Orig (copy)");
+  assert.deepEqual(outline(workflow.steps), ["AUP: Terms", "USER_SELECTION_SPLIT: Who", '  option "Guests"', "    DPSK: Give a DPSK passphrase", '  option "Staff"', "    CERT_TEMPLATE: Issue a certificate"]);
+  const aup = workflow.steps[0].params;
+  assert.equal(aup.aupPlainText, "be nice"); assert.equal(aup.checkboxHighlightColor, "#FCFFB3"); assert.equal(aup.checkboxDefaultState, true);
+  assert.equal(workflow.steps[1].options[0].text, "Guests");
+  assert.equal(workflow.steps[1].options[0].steps[0].params.dpskPoolId, "pool1");
+  assert.equal(workflow.steps[1].options[0].steps[0].params.qrCodeDisplay, true);
+  assert.deepEqual(f.writes, [], "importing must not write to R1");
+  assert.deepEqual(warnings, []);
+  assert.equal(workflow.source.r1, "w1");
+  // it validates as a workflow and converts back for building (as a new workflow: the copy has its own name)
+  const inv = { dpskPools: [{ id: "pool1", name: "P", identityGroupId: "g1" }], certTemplates: [{ id: "t1", name: "Tpl", identityGroupId: "g2" }], macPools: [], cas: [], networks: [], identityGroups: [], workflows: [{ name: "Orig" }] };
+  assert.deepEqual(validate(workflow, inv).filter((i) => i.level === "error"), []);
+  const bw = toBuildWorkflow(workflow, inv);
+  assert.equal(bw.steps[0].r1.aupPlainText, "be nice");
+  assert.equal(bw.steps[0].r1.useAupFile, false);
+  assert.equal(bw.steps[1].options[1].steps[0].r1.certTemplateId, "t1");
+});
+
+test("import: unsupported R1 steps become placeholders; a certificate template becomes a form with warnings", async () => {
+  const { importWorkflow, importCertTemplate } = require("../src/r1import");
+  const f = fakeWorkflowApi();
+  // make the AUP step a functional split
+  const wrap = { async call(m, p) { if (p === "/workflows/w1/steps") { const s = (await f.client.call(m, p)).content.map((x) => (x.id === "s1" ? { ...x, actionType: "FUNCTIONAL_SPLIT", enrollmentActionId: "a5" } : x)); return { content: s }; } return f.client.call(m, p); } };
+  const r = await importWorkflow(wrap, "w1");
+  assert.equal(r.workflow.steps[0].type, "UNSUPPORTED");
+  assert.match(r.warnings[0], /can't edit/);
+  const t = await importCertTemplate(f.client, "t1");
+  assert.equal(t.template.name, "Tpl (copy)");
+  assert.deepEqual([t.template.caId, t.template.commonNamePattern, t.template.algorithm, t.template.keyLength, t.template.organization], ["ca1", "$(USERNAME)@x.com", "SHA_384", 3072, "Org"]);
+  assert.deepEqual([t.template.validityType, t.template.validityValue], ["YEARS", 1]);
+  assert.match(t.warnings[0], /fixed date/);
+  await assert.rejects(importCertTemplate(f.client, "nope"), /not found/);
+});
+
+test("model: only one onboarding step is allowed per path", () => {
+  const a = newNode("DPSK"), b = newNode("MAC_REG");
+  a.params.dpskPoolId = "p"; b.params.macRegListId = "m";
+  const inv = { dpskPools: [{ id: "p", name: "P" }], macPools: [{ id: "m", name: "M" }], workflows: [], cas: [], certTemplates: [], networks: [], identityGroups: [] };
+  assert.ok(validate({ name: "N", steps: [a, b] }, inv).some((i) => /only one onboarding step/.test(i.message)));
+  const split = newNode("USER_SELECTION_SPLIT"); split.options[0].steps = [a]; split.options[1].steps = [b];
+  assert.ok(!validate({ name: "N", steps: [split] }, inv).some((i) => /only one onboarding step/.test(i.message)), "one per branch is fine");
+});
+
+test("server: import routes are read-only and template apply is gated by a preview", async () => {
+  const s = await start();
+  try {
+    const f = fakeWorkflowApi();
+    s.fake.client.call = (orig => async (m, p, b) => { if (/^\/workflows\/w1|^\/enrollmentActions\/\w+$|\/certificateTemplates\/query/.test(p) && m === "GET") return f.client.call(m, p); return orig(m, p, b); })(s.fake.client.call);
+    const w = await s.post("/api/import/workflow", { id: "w1" });
+    assert.equal(w.status, 200); assert.equal(w.json().workflow.name, "Orig (copy)");
+    assert.equal((await s.post("/api/import/workflow", { id: "../etc" })).status, 400);
+    const tpl = { kind: "certTemplate", name: "Brand new tpl", description: "", caId: "ca-1", commonNamePattern: "$(USERNAME)", emailPattern: "", validityType: "YEARS", validityValue: 1, startType: "DAYS", startValue: 0, organization: "", organizationUnit: "", locality: "", state: "", country: "", algorithm: "SHA_256", keyLength: 2048 };
+    assert.equal((await s.post("/api/template/apply", { template: tpl, options: {}, hash: "x" })).status, 409);
+    const pv = (await s.post("/api/template/preview", { template: tpl, options: {} })).json();
+    assert.deepEqual(pv.issues, []);
+    assert.deepEqual(pv.willCreate.map((x) => x.kind), ["certificate template", "identity group"]);
+    assert.equal(s.fake.calls.filter((c) => c.method !== "GET" && !/query/.test(c.path)).length, 0, "preview writes nothing");
+    const ok = (await s.post("/api/template/apply", { template: tpl, options: {}, hash: pv.hash })).json();
+    assert.deepEqual(ok.built, ["Brand new tpl"]);
+    assert.ok(s.fake.calls.some((c) => c.method === "POST" && c.path === "/certificateAuthorities/ca-1/templates" && c.body.name === "Brand new tpl"));
+    const bad = (await s.post("/api/template/preview", { template: { ...tpl, name: "Guest Policy Template" }, options: {} })).json();
+    assert.ok(bad.issues.some((i) => /already exists/.test(i.message)));
+  } finally { await s.close(); }
+});

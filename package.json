@@ -1,0 +1,1 @@
+{ "name": "cloudpath-to-r1", "version": "0.1.0", "private": true, "description": "Read Cloudpath enrollment workflows and plan their RUCKUS One equivalents", "scripts": { "test": "node --test test/*.test.js", "report": "node bin/report.js" } }
