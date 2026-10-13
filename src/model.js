@@ -227,9 +227,11 @@ function guestFromPlan(cpWf) {
 
 // Logical split conditions (R1 "Logical Split"; API action FUNCTIONAL_SPLIT). Read from a split made in the R1 GUI (workflow "a test workflow"):
 // each branch is an option whose action holds evaluationConditions [{ sourceActionId, variableName, operation, evaluationRegex }].
-// Only the names seen in that sample are listed; any other variable name can be typed in the editor.
+// Only the variable names seen in that sample are listed (R1 does not validate them, so they can't be probed); any other can be typed in the editor.
 const LOGIC_FIELDS = [["CP_DEVICE_TYPE", "Device type"]];
-const LOGIC_OPS = [["EQUALS", "equals"]];
+// Comparisons R1 accepts (from R1's own error message for an unknown one, 2026-10-13). "IS" / "IS_NOT" sit beside EQUALS /
+// DOES_NOT_EQUAL; how R1 tells them apart isn't documented, so both are offered.
+const LOGIC_OPS = [["EQUALS", "equals"], ["DOES_NOT_EQUAL", "does not equal"], ["IS", "is"], ["IS_NOT", "is not"], ["CONTAINS", "contains"], ["DOES_NOT_CONTAIN", "does not contain"], ["STARTS_WITH", "starts with"], ["ENDS_WITH", "ends with"]];
 const newCondition = () => ({ variable: LOGIC_FIELDS[0][0], operation: "EQUALS", value: "" });
 
 let seq = 0;

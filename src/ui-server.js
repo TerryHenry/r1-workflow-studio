@@ -206,7 +206,8 @@ function createUiServer({ client = null, crawl = null, mapping = {}, root = path
       if (host !== "127.0.0.1" && host !== "localhost") return send(403, { error: "Local use only." });
       const url = new URL(req.url, "http://localhost");
       if (req.method === "GET" && url.pathname === "/") {
-        const html = fs.readFileSync(path.join(root, "ui", "index.html"), "utf8").replace("__TOKEN__", token);
+        const sim = fs.readFileSync(path.join(__dirname, "sim.js"), "utf8");
+        const html = fs.readFileSync(path.join(root, "ui", "index.html"), "utf8").replace("__TOKEN__", token).replace("/*__SIM_ENGINE__*/", () => sim);
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store",
           "content-security-policy": "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" });
         return res.end(html);

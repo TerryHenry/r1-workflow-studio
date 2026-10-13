@@ -39,6 +39,11 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
 - **Look and feel** (the **Look** tab of a workflow): welcome title and name, the 8 portal colors, logo size, font, header size,
   "Powered by" and the logo / background / icon images (up to 5 MB each), with a live mock-up. Opening an R1 workflow copies its look,
   logo included. Off by default: R1's own look is used unless you customize it.
+- **Try it** (tab, or "▶ Try it as a visitor" in the Preview tab): a phone-style frame, styled with the workflow's look and feel, that you
+  click through as the visitor: AUP checkbox, forms (empty fields are refused), messages, choices, sample passphrases and QR code,
+  MAC/certificate/sign-in screens, Back and Start over. Logical splits pick their branch from a "simulated device" panel (device type,
+  plus any other field the workflow's conditions use). The current step is highlighted on the diagram and the path taken is listed.
+  Guest networks get a portal page you can sign in to. It runs entirely in the editor: nothing is sent to R1 and passphrases are made up.
 - **Edit on the diagram**: click a step to configure it; `+` adds a step (with search); drag a step onto a `+` to move it (also
   between branches); double-click a step to rename it; duplicate, move up/down, delete. Undo/redo (`⌘/Ctrl Z`, `⇧` for redo), `Del`
   deletes the selected step, `↑ ↓` select the previous/next step, `Esc` deselects.
@@ -164,7 +169,7 @@ Live results (2026-10-13, your tenant):
   `GET /workflows/{id}/uiConfigurations/{logo|background|icon}` as a signed link, served as a generic octet-stream.
 - Confirmed (logical split, read from a split made in the R1 GUI, workflow `a test workflow`): R1's "Logical Split" is the `FUNCTIONAL_SPLIT`
   step; each branch is an option whose action carries `evaluationConditions: [{ sourceActionId, variableName, operation, evaluationRegex }]`
-  (seen: `CP_DEVICE_TYPE` `EQUALS` `phone`). The editor has a **Logical split** step with branches and conditions, imports existing ones,
+  (seen: `CP_DEVICE_TYPE` `EQUALS` `phone`). R1 accepts exactly eight comparisons (it lists them when given a wrong one): EQUALS, DOES_NOT_EQUAL, IS, IS_NOT, CONTAINS, DOES_NOT_CONTAIN, STARTS_WITH, ENDS_WITH; it does not check variable names. The editor has a **Logical split** step with branches and conditions, imports existing ones,
   and built a nested split live. Only the Device-type variable name and the `EQUALS` operator are known: any other variable name can be
   typed in the editor, and the other GUI fields (Device OS, Language, Browser Name, Captive Portal SSID, Device MAC / IP address) and
   evaluators need a sample that uses them. A condition on an earlier form field (`sourceActionId`) is kept by name only.

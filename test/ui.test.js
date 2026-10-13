@@ -532,3 +532,64 @@ test("import: a workflow with more than one page of steps is read completely", a
   const small = { async call(m, p) { const q = p.match(/^(\/workflows\/w\/steps)\?page=(\d+)&size=\d+$/); if (q) { const page = Number(q[2]), size = 5; return { content: steps.slice(page * size, page * size + size), paging: { totalCount: steps.length, page, pageSize: size, pageCount: Math.ceil(steps.length / size) } }; } return client.call(m, p); } };
   assert.equal((await importWorkflow(small, "w")).workflow.steps.length, N);
 });
+
+// ---- visitor walkthrough engine ("Try it") ----
+test("walkthrough: steps run in order, back works, choices and logical splits pick branches, paths end", () => {
+  const sim = require("../src/sim");
+  const aup = newNode("AUP"), msg = newNode("DISPLAY_MESSAGE"), dpsk = newNode("DPSK"), pass = newNode("PASSPHRASE");
+  const choice = newNode("USER_SELECTION_SPLIT"); choice.options[0].steps = [dpsk]; choice.options[1].steps = [pass];
+  const logical = newNode("LOGICAL_SPLIT");
+  logical.options[0].conditions = [{ variable: "CP_DEVICE_TYPE", operation: "EQUALS", value: "phone" }]; logical.options[0].steps = [choice];
+  logical.options[1].conditions = [{ variable: "CP_DEVICE_TYPE", operation: "EQUALS", value: "tablet" }, { variable: "CP_DEVICE_OS", operation: "EQUALS", value: "iOS" }]; logical.options[1].steps = [msg];
+  const wf = { name: "W", steps: [aup, logical] };
+  assert.deepEqual(sim.simVariables(wf).sort(), ["CP_DEVICE_OS", "CP_DEVICE_TYPE"]);
+
+  let s = sim.simStart(wf);
+  assert.equal(sim.simCurrent(s), aup);
+  sim.simAdvance(s, undefined, {});
+  assert.equal(sim.simCurrent(s), logical);
+  // phone -> branch 1 -> the choice
+  let r = sim.simAdvance(s, undefined, { CP_DEVICE_TYPE: "Phone" });
+  assert.equal(r.branch.name, "Branch 1"); assert.match(r.branch.because[0], /CP_DEVICE_TYPE equals phone/);
+  assert.equal(sim.simCurrent(s), choice);
+  sim.simAdvance(s, 1, {});                        // picks option 2
+  assert.equal(sim.simCurrent(s), pass);
+  sim.simAdvance(s, undefined, {});
+  assert.equal(sim.simCurrent(s), null); assert.equal(s.ended.reason, "end");
+  assert.deepEqual(s.trail.map((n) => n.type), ["AUP", "LOGICAL_SPLIT", "USER_SELECTION_SPLIT", "PASSPHRASE"]);
+  // back steps through history, including past the end
+  assert.ok(sim.simBack(s)); assert.equal(sim.simCurrent(s), pass);
+  assert.ok(sim.simBack(s)); assert.equal(sim.simCurrent(s), choice);
+  assert.ok(sim.simBack(s)); assert.equal(sim.simCurrent(s), logical);
+  // tablet needs BOTH conditions (an assumption the tab states); tablet without iOS matches nothing
+  r = sim.simAdvance(s, undefined, { CP_DEVICE_TYPE: "tablet", CP_DEVICE_OS: "Android" });
+  assert.equal(r.branch, null); assert.equal(s.ended.reason, "nomatch");
+  assert.ok(sim.simBack(s));
+  r = sim.simAdvance(s, undefined, { CP_DEVICE_TYPE: "tablet", CP_DEVICE_OS: "ios" });
+  assert.equal(r.branch.name, "Branch 2"); assert.equal(sim.simCurrent(s), msg);
+  // a message that ends the session
+  msg.params.killSession = true;
+  sim.simAdvance(s, undefined, {});
+  assert.equal(s.ended.reason, "session");
+  assert.equal(sim.simBack(new (class { constructor() { Object.assign(this, sim.simStart(wf)); } })()), false, "nothing to go back to at the start");
+  // sample passphrases are stable per seed and follow the format
+  assert.equal(sim.simSample("NUMBERS_ONLY", 8, "a"), sim.simSample("NUMBERS_ONLY", 8, "a"));
+  assert.match(sim.simSample("NUMBERS_ONLY", 8, "a"), /^\d{8}$/);
+  assert.equal(sim.simSample("MOST_SECURED", 12, "b").length, 12);
+  assert.notEqual(sim.simSample("MOST_SECURED", 12, "b"), sim.simSample("MOST_SECURED", 12, "c"));
+});
+
+test("logical split comparisons: all eight R1 operators are offered and evaluated", () => {
+  const { LOGIC_OPS } = require("../src/model");
+  const sim = require("../src/sim");
+  assert.deepEqual(LOGIC_OPS.map((o) => o[0]).sort(), ["CONTAINS", "DOES_NOT_CONTAIN", "DOES_NOT_EQUAL", "ENDS_WITH", "EQUALS", "IS", "IS_NOT", "STARTS_WITH"]);
+  const dev = { OS: "iOS 17.2" };
+  const t = (op, v) => sim.condMatches({ variable: "OS", operation: op, value: v }, dev);
+  assert.deepEqual([t("EQUALS", "ios 17.2"), t("IS", "iOS 17.2"), t("EQUALS", "iOS")], [true, true, false]);
+  assert.deepEqual([t("DOES_NOT_EQUAL", "android"), t("IS_NOT", "iOS 17.2")], [true, false]);
+  assert.deepEqual([t("CONTAINS", "17"), t("DOES_NOT_CONTAIN", "17"), t("STARTS_WITH", "ios"), t("ENDS_WITH", "17.2"), t("ENDS_WITH", "iOS")], [true, false, true, true, false]);
+  assert.equal(t("NOPE", "x"), false);
+  // an unknown comparison is rejected by validation
+  const n = newNode("LOGICAL_SPLIT"); n.options[0].conditions = [{ variable: "V", operation: "MATCHES", value: "x" }];
+  assert.ok(validate({ name: "N", steps: [n] }, {}).some((i) => /unknown comparison/.test(i.message)));
+});

@@ -104,6 +104,19 @@ body.noleft #left { display: none; } body.noleft main { grid-template-columns: m
 .pal { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .pal button { text-align: left; border: 1px solid var(--line); border-left: 4px solid var(--basic); background: var(--bg); border-radius: 8px; padding: 8px; }
 .pal button.split { border-left-color: var(--split); } .pal button.onboard { border-left-color: var(--onboard); } .pal button.auth { border-left-color: var(--auth); }
 .pal b { display: block; } .pal span { font-size: 12px; color: var(--muted); }
+.card.playing { box-shadow: 0 0 0 3px var(--ok), var(--shadow); }
+.phone { width: 330px; max-width: 100%; margin: 8px auto; border: 6px solid #2b3140; border-radius: 26px; overflow: hidden; background: #fff; box-shadow: var(--shadow); }
+.phone .sc { min-height: 380px; padding: 14px 14px 16px; }
+.phone h3 { margin: 0 0 6px; font-size: 17px; } .phone p { margin: 6px 0; }
+.phone .pbtn { display: inline-block; border: 0; border-radius: 4px; padding: 7px 16px; margin: 8px 6px 0 0; cursor: pointer; font: inherit; }
+.phone .pbtn[disabled] { opacity: .45; cursor: not-allowed; } .phone .pbtn.ghost { background: transparent !important; border: 1px solid currentColor; }
+.phone .choice { display: block; width: 100%; text-align: left; margin: 6px 0; padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(0,0,0,.18); background: rgba(255,255,255,.7); color: inherit; cursor: pointer; font: inherit; }
+.phone input[type=text], .phone input[type=email], .phone input[type=tel], .phone input[type=password] { background: #fff; color: #111; border: 1px solid #bbb; margin: 2px 0 8px; }
+.phone .terms { max-height: 120px; overflow: auto; background: rgba(255,255,255,.7); border: 1px solid rgba(0,0,0,.15); border-radius: 4px; padding: 6px 8px; font-size: 12px; white-space: pre-wrap; }
+.phone .pass { font: 600 17px ui-monospace, Menlo, monospace; letter-spacing: .5px; background: rgba(255,255,255,.8); border: 1px dashed rgba(0,0,0,.3); border-radius: 6px; padding: 10px; text-align: center; margin: 8px 0; overflow-wrap: anywhere; }
+.phone .qr { width: 96px; height: 96px; margin: 6px auto; background: repeating-conic-gradient(#111 0 25%, #fff 0 50%) 50% / 16px 16px; border: 6px solid #fff; outline: 1px solid #ccc; }
+.phone .warn { color: #b3261e; font-size: 12px; } .phone .ok { color: #1f7a3d; }
+.trail { font-size: 12px; color: var(--muted); } .trail li { margin: 2px 0; }
 .zoom { display: flex; align-items: center; gap: 4px; }
 .hotkeys { font-size: 11px; color: var(--muted); margin-top: 16px; line-height: 2; }
 kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; font-size: 11px; background: var(--bg); }
@@ -135,7 +148,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4p
   <aside id="left"></aside>
   <section id="canvas" aria-label="Workflow"><div id="zoomwrap"><div class="flow" id="flow"></div></div></section>
   <aside id="right"><div id="rsz" title="Drag to resize"></div>
-    <div class="tabs" role="tablist"><button id="tabStep" role="tab">Step</button><button id="tabLook" role="tab">Look</button><button id="tabProblems" role="tab">Problems</button><button id="tabPreview" role="tab">Preview</button></div>
+    <div class="tabs" role="tablist"><button id="tabStep" role="tab">Step</button><button id="tabLook" role="tab">Look</button><button id="tabProblems" role="tab">Problems</button><button id="tabPreview" role="tab">Preview</button><button id="tabTry" role="tab">Try it</button></div>
     <div id="pane"></div>
   </aside>
 </main>
@@ -144,6 +157,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4p
 <script>
 "use strict";
 const TOKEN = "__TOKEN__";
+/*__SIM_ENGINE__*/
 const $ = (s, el = document) => el.querySelector(s);
 function h(tag, attrs, ...kids) {
   const e = document.createElement(tag);
@@ -323,7 +337,7 @@ function card(n) {
   const cat = n.type === "UNSUPPORTED" ? "unsupported" : spec ? spec.category : "basic";
   const iss = issuesFor(n.id).filter((i) => i.level === "error").length;
   const nameEl = h("div", { class: "n", title: "Double-click to rename", ondblclick: (e) => { e.stopPropagation(); inlineRename(n, nameEl); } }, n.name);
-  const c = h("div", { class: "card " + cat + (S.selected === n.id ? " sel" : ""), tabindex: "0", role: "button", draggable: n.type === "UNSUPPORTED" ? false : true, "data-id": n.id,
+  const c = h("div", { class: "card " + cat + (S.selected === n.id ? " sel" : "") + (S.tab === "try" && S.simNodeId === n.id ? " playing" : ""), tabindex: "0", role: "button", draggable: n.type === "UNSUPPORTED" ? false : true, "data-id": n.id,
     onclick: () => select(n.id), onkeydown: (e) => { if (e.key === "Enter" && e.target === c) select(n.id); } },
     iss ? h("span", { class: "badge", title: iss + " problem(s)" }, "⚠ " + iss) : null,
     h("div", { class: "ic" }, ICON[n.type] || "•"),
@@ -361,14 +375,17 @@ function setZoom(z) { S.fit = false; S.zoom = Math.max(.3, Math.min(1.6, z)); ap
 /* ---------- right panel ---------- */
 function setTab(t) { S.tab = t; renderRight(); }
 function renderRight() {
-  const tabs = { step: $("#tabStep"), look: $("#tabLook"), problems: $("#tabProblems"), preview: $("#tabPreview") };
+  const tabs = { step: $("#tabStep"), look: $("#tabLook"), problems: $("#tabProblems"), preview: $("#tabPreview"), try: $("#tabTry") };
+  if (S.tab !== "try" && S.simNodeId) { S.simNodeId = null; renderCanvas(); }
+  tabs.try.style.display = (S.obj && S.obj.kind !== "guestNetwork") ? "none" : ""; if (S.obj && S.obj.kind !== "guestNetwork" && S.tab === "try") S.tab = "step";
   tabs.look.style.display = S.obj ? "none" : ""; if (S.obj && S.tab === "look") S.tab = "step";
-  tabs.step.textContent = "Step"; tabs.preview.textContent = "Preview";
+  tabs.step.textContent = "Step"; tabs.preview.textContent = "Preview"; tabs.try.textContent = "Try it";
   const ec = errorCount(), wc = S.issues.length - ec;
   tabs.problems.replaceChildren("Problems", h("span", { class: "count", style: "color:" + (ec ? "var(--bad)" : wc ? "var(--warn)" : "var(--muted)") }, S.issues.length ? "(" + S.issues.length + ")" : ""));
   for (const [k, b] of Object.entries(tabs)) { b.className = S.tab === k ? "on" : ""; b.setAttribute("aria-selected", S.tab === k); }
   const P = $("#pane"); P.replaceChildren();
   if (!S.wf && !S.obj) { P.append(h("div", { class: "note" }, "Open a workflow, certificate template or guest network from the left, or start a new one. Nothing is sent to RUCKUS One until you preview and apply.")); return; }
+  if (S.tab === "try") return renderTry(P);
   if (S.tab === "problems") return renderProblems(P);
   if (S.tab === "look" && S.wf) return renderLook(P);
   if (S.tab === "preview") return renderPreview(P);
@@ -562,10 +579,152 @@ function renderLook(P) {
   drawMock();
 }
 
+/* ---------- Try it: click through the workflow as a visitor ---------- */
+const TRY = { state: null, key: null, device: { CP_DEVICE_TYPE: "phone" }, form: {}, ok: {} };
+const NO = (v) => (v == null ? "" : String(v));
+function tryColors() { const L = (S.wf && S.wf.look) || S.defaultLook; return { c: L.colors, L, font: L.fontName || "Arial" }; }
+function tryHighlight(node) {
+  S.simNodeId = node ? node.id : null;
+  document.querySelectorAll(".card").forEach((el) => el.classList.toggle("playing", !!node && el.dataset.id === node.id));
+  const el = node && document.querySelector(`.card[data-id="${node.id}"]`); if (el) el.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+function renderTry(P) {
+  if (S.obj) return renderTryGuest(P);
+  const wf = S.wf, k = JSON.stringify([wf.steps, wf.look || null]);
+  if (!TRY.state || TRY.key !== k) { TRY.key = k; TRY.state = simStart(wf); TRY.form = {}; TRY.ok = {}; }
+  P.append(h("h2", {}, "Try it as a visitor"), h("p", { class: "hint" }, "Click through the workflow the way a visitor would. It runs here only: nothing is sent to RUCKUS One, and sample passphrases are made up."));
+  const vars = [...new Set(["CP_DEVICE_TYPE", ...simVariables(wf)])];
+  const dev = h("div", { class: "note" }, h("b", {}, "Your simulated device"), h("div", { class: "hint" }, "Logical splits choose a branch from these values."));
+  for (const v of vars) {
+    const label = (S.logicFields.find((f) => f[0] === v) || [0, v])[1];
+    dev.append(h("div", { class: "row", style: "display:flex;gap:6px;align-items:center;margin-top:4px" }, h("label", { style: "flex:1;font-size:12px" }, label), h("input", { type: "text", value: NO(TRY.device[v]), style: "max-width:150px", list: v === "CP_DEVICE_TYPE" ? "dl_devtype" : undefined, oninput: (e) => { TRY.device[v] = e.target.value; const n = simCurrent(TRY.state); if (n && n.type === "LOGICAL_SPLIT") drawPhone(); } })));
+  }
+  dev.append(h("datalist", { id: "dl_devtype" }, ["phone", "tablet", "laptop", "desktop"].map((x) => h("option", { value: x }))));
+  P.append(dev);
+  P.append(h("div", { style: "display:flex;gap:6px;margin:6px 0" }, h("button", { class: "btn small", id: "tryBack", onclick: () => { if (simBack(TRY.state)) { TRY.form = {}; drawPhone(); } } }, "← Back"), h("button", { class: "btn small", onclick: () => { TRY.state = simStart(wf); TRY.form = {}; TRY.ok = {}; drawPhone(); } }, "↺ Start over")));
+  P.append(h("div", { id: "phone" }), h("h2", {}, "Path so far"), h("ol", { class: "trail", id: "trail" }));
+  drawPhone();
+}
+function drawPhone() {
+  const box = $("#phone"); if (!box || !S.wf) return;
+  const st = TRY.state, { c, L, font } = tryColors();
+  const node = simCurrent(st); tryHighlight(node);
+  const btnStyle = `background:${c.buttonColor};color:${c.buttonFontColor}`;
+  const btn = (label, fn, o = {}) => h("button", { class: "pbtn" + (o.ghost ? " ghost" : ""), style: btnStyle, disabled: !!o.disabled, onclick: fn }, label);
+  const go = (choice) => { const r = simAdvance(st, choice, TRY.device); TRY.form = {}; TRY.last = r; drawPhone(); };
+  const back = () => (st.history.length ? btn("Back", () => { simBack(st); TRY.form = {}; drawPhone(); }, { ghost: true }) : null);
+  const logo = (L.images || {}).logo;
+  const head = h("div", { style: `background:${c.headerBarBackgroundColor};color:${c.fontHeaderColor};padding:9px 12px;display:flex;align-items:center;gap:8px;font-size:${Math.min(22, Math.max(12, Number(L.headerFontSize) || 16))}px` },
+    logo ? h("img", { src: `data:${logo.type};base64,${logo.base64}`, style: `height:${{ SMALL: 20, MEDIUM: 30, LARGE: 42 }[L.logoSize] || 30}px;max-width:90px;object-fit:contain` }) : null,
+    h("b", {}, L.welcomeTitle || S.wf.name || "Welcome"), h("a", { href: "#", style: `margin-left:auto;font-size:11px;color:${c.startOverFontColor}`, onclick: (e) => { e.preventDefault(); TRY.state = simStart(S.wf); TRY.form = {}; drawPhone(); } }, "Start over"));
+  const body = h("div", { class: "sc", style: `background:${c.backgroundColor};color:${c.fontColor};border-top:2px solid ${c.lineColor}` });
+  if (L.welcomeName && st.trail.length === 0) body.append(h("p", { style: "opacity:.8" }, L.welcomeName));
+  const heading = (t) => body.append(h("h3", {}, t));
+  const para = (t, cls) => t ? body.append(h("p", { class: cls || "" }, t)) : null;
+  const p = node ? node.params || {} : {};
+  if (!node) {
+    const why = st.ended && st.ended.reason;
+    if (why === "nomatch") { heading("No path for this device"); para("None of the logical split's branches match the simulated device, so the visitor would be stuck here. Add a branch for it, or change the device values above.", "warn"); body.append(back()); }
+    else if (why === "session") { heading("Session ended"); para("The workflow ended the visitor's session."); body.append(btn("Start over", () => { TRY.state = simStart(S.wf); drawPhone(); })); }
+    else { heading("You're all set"); para("The workflow is complete: the visitor is connected.", "ok"); body.append(back(), btn("Start over", () => { TRY.state = simStart(S.wf); drawPhone(); })); }
+  } else switch (node.type) {
+    case "AUP": {
+      heading(p.title || "Acceptable use policy"); if (p.messageHtml) para(p.messageHtml);
+      if (p.aupPlainText) body.append(h("div", { class: "terms" }, p.aupPlainText));
+      const key = node.id; if (TRY.ok[key] === undefined) TRY.ok[key] = !!p.checkboxDefaultState;
+      const cont = btn(p.continueButtonText || "Continue", () => go(), { disabled: !TRY.ok[key] });
+      body.append(h("label", { style: "display:flex;gap:8px;align-items:flex-start;margin-top:8px" }, h("input", { type: "checkbox", checked: TRY.ok[key], style: "width:auto;margin-top:3px", onchange: (e) => { TRY.ok[key] = e.target.checked; cont.disabled = !e.target.checked; } }), h("span", { style: `background:${p.checkboxHighlightColor || "transparent"};padding:0 3px` }, p.checkboxText || "I agree")));
+      body.append(back(), cont); break;
+    }
+    case "DATA_PROMPT": {
+      if (p.displayTitle !== false) heading(p.title || "Your details"); if (p.displayMessageHtml && p.messageHtml) para(p.messageHtml);
+      const inputs = (p.variables || []).map((v, i) => { const t = { EMAIL: "email", PHONE: "tel" }[v.type] || "text"; const inp = h("input", { type: t, placeholder: v.label, "aria-label": v.label, value: NO(TRY.form[i]), oninput: (e) => { TRY.form[i] = e.target.value; } }); body.append(h("label", { style: "font-size:12px" }, v.label), inp); return inp; });
+      const msg = h("p", { class: "warn" }); body.append(msg, back(), btn("Continue", () => { if (inputs.some((x) => !x.value.trim())) { msg.textContent = "Please fill in every field."; return; } go(); })); break;
+    }
+    case "DISPLAY_MESSAGE": {
+      heading(p.title || "Notice"); para(p.messageHtml);
+      if (p.displayBackButton !== false) body.append(back());
+      if (p.displayContinueButton !== false) body.append(btn(p.continueButtonText || "Continue", () => go()));
+      if (p.killSession) para("(Continuing ends the session.)", "warn"); break;
+    }
+    case "USER_SELECTION_SPLIT": {
+      heading(p.title || "Choose one"); if (p.displayMessageHtml && p.messageHtml) para(p.messageHtml);
+      (node.options || []).forEach((o, i) => body.append(h("button", { class: "choice", onclick: () => go(i) }, h("b", {}, o.name), o.text ? h("div", { style: "font-size:12px;opacity:.8" }, o.text) : null)));
+      body.append(back()); break;
+    }
+    case "LOGICAL_SPLIT": {
+      const m = simMatchBranch(node, TRY.device);
+      heading("Checking your device…"); para("In RUCKUS One this happens by itself; the visitor doesn't see this screen.", "hint");
+      body.append(h("div", { style: "font-size:12px;margin:6px 0" }, Object.entries(TRY.device).filter(([, v]) => v !== "").map(([k, v]) => h("div", {}, `${(S.logicFields.find((f) => f[0] === k) || [0, k])[1]}: `, h("b", {}, v)))));
+      if (m.index >= 0) para(`Matches “${node.options[m.index].name}” (${m.because.join(" and ")}).`, "ok"); else para("No branch matches this device.", "warn");
+      body.append(h("p", { class: "hint", style: "font-size:11px" }, "A branch matches when all of its conditions are true (an assumption: confirm how R1 combines several)."), back(), btn("Continue", () => go())); break;
+    }
+    case "DPSK": {
+      const pool = p.mode === "new" ? p.newName : nameOf(S.inv.dpskPools, p.dpskPoolId);
+      heading("Your Wi-Fi password"); para("Join this network with your personal password:");
+      const nets = p.mode === "new" ? (p.ssids || []).map((x) => x.ssid).filter(Boolean) : []; para(nets.length ? "Network: " + nets.join(", ") : "Network: the Wi-Fi network linked to the pool " + (pool || "(choose a pool)"));
+      body.append(h("div", { class: "pass" }, simSample(p.mode === "new" ? p.passphraseFormat : "MOST_SECURED", p.mode === "new" ? p.passphraseLength : 12, node.id)));
+      if (p.qrCodeDisplay) body.append(h("div", { class: "qr", title: "Sample QR code" }));
+      if (p.emailNotification || p.smsNotification) para("We also sent it by " + [p.emailNotification && "email", p.smsNotification && "text message"].filter(Boolean).join(" and ") + ".", "hint");
+      body.append(back(), btn("Done", () => go())); break;
+    }
+    case "MAC_REG": {
+      heading("Register this device"); const list = p.mode === "new" ? p.newName : nameOf(S.inv.macPools, p.macRegListId);
+      if (p.clientEnterMacAddress) { const inp = h("input", { type: "text", placeholder: "AA:BB:CC:DD:EE:FF", value: NO(TRY.form.mac), oninput: (e) => { TRY.form.mac = e.target.value; } }); const msg = h("p", { class: "warn" }); body.append(h("label", { style: "font-size:12px" }, "Your device's MAC address"), inp, msg, back(), btn("Register", () => { if (!/^([0-9a-f]{2}[:-]?){5}[0-9a-f]{2}$/i.test(inp.value.trim())) { msg.textContent = "Enter a valid MAC address."; return; } go(); })); }
+      else { para("Your device is being added to the list" + (list ? " “" + list + "”" : "") + ".", "ok"); body.append(back(), btn("Done", () => go())); } break;
+    }
+    case "CERT_TEMPLATE": {
+      const tpl = p.mode === "new" ? p.newName : nameOf(S.inv.certTemplates, p.certTemplateId);
+      heading("Your certificate is ready"); para("Template: " + (tpl || "(choose a template)"));
+      if (p.mode === "new" && p.commonNamePattern) para("Issued to: " + String(p.commonNamePattern).replace(/\$\(USERNAME\)/g, "visitor").replace(/\$\((\w+)\)/g, "$1"), "hint");
+      body.append(back(), btn("Install certificate", () => go())); break;
+    }
+    case "PASSPHRASE": {
+      heading("Wi-Fi password"); para("Network: " + (nameOf(S.inv.networks, p.networkId) || "(choose a network)"));
+      body.append(h("div", { class: "pass" }, simSample("MOST_SECURED", 12, node.id)), back(), btn("Done", () => go())); break;
+    }
+    case "CAPTIVE_PORTAL": heading("Taking you online"); para("Redirecting to " + (p.redirectUrl || "(no address set)")); body.append(back(), btn("Done", () => go())); break;
+    case "LDAP_AUTH_PROVIDER": { heading("Sign in"); para("Use your directory account."); body.append(h("label", { style: "font-size:12px" }, "Username"), h("input", { type: "text" }), h("label", { style: "font-size:12px" }, "Password"), h("input", { type: "password" }), back(), btn("Sign in", () => go())); break; }
+    case "IDP_AUTH_PROVIDER": heading("Sign in"); para("You'll be sent to your organization's sign-in page."); body.append(back(), btn("Continue to sign-in", () => go())); break;
+    default: heading(node.name); para("This step has no RUCKUS One equivalent, so it can't run here.", "warn"); body.append(back(), btn("Skip", () => go()));
+  }
+  [...body.childNodes].forEach((n) => { if (n.nodeType === 3 && n.textContent === "null") n.remove(); });   // append(null) writes the word "null"
+  box.replaceChildren(h("div", { class: "phone", style: `font-family:${font},sans-serif` }, head, body, L.disablePoweredBy ? null : h("div", { style: `font-size:10px;padding:4px 12px;background:${c.backgroundColor};color:${c.fontColor};opacity:.6` }, "Powered by RUCKUS")));
+  const tr = $("#trail"); if (tr) { tr.replaceChildren(...st.trail.map((n) => h("li", {}, (ICON[n.type] || "•") + " " + n.name)), ...(node ? [h("li", { style: "color:var(--ok);font-weight:600" }, "▶ " + node.name)] : [])); if (!st.trail.length && !node) tr.append(h("li", {}, "(nothing yet)")); }
+  const bb = $("#tryBack"); if (bb) bb.disabled = !st.history.length;
+}
+// A guest network: the portal page a visitor sees, and signing in with a pass.
+function renderTryGuest(P) {
+  const g = S.obj, c = S.defaultLook.colors;
+  P.append(h("h2", {}, "Try the portal page"), h("p", { class: "hint" }, "What a visitor sees after joining this Wi-Fi network. Nothing is sent to RUCKUS One."));
+  const screen = h("div", {}); P.append(screen);
+  const show = (connected) => {
+    const btn = (label, fn, dis) => h("button", { class: "pbtn", style: `background:${c.buttonColor};color:${c.buttonFontColor}`, disabled: !!dis, onclick: fn }, label);
+    const body = h("div", { class: "sc", style: `background:${c.backgroundColor};color:${c.fontColor}` });
+    if (connected) {
+      body.append(h("h3", {}, "You're connected"), h("p", { class: "ok" }, `Your session lasts ${g.userSessionTimeout || 1440} minutes, for up to ${g.maxDevices || 1} device(s).`));
+      if (g.redirectUrl) body.append(h("p", { class: "hint" }, "Next you'd be sent to " + g.redirectUrl)); body.append(btn("Start over", () => show(false)));
+    } else {
+      body.append(h("h3", {}, g.title || "Welcome")); if (g.tagLine) body.append(h("p", { style: "opacity:.8" }, g.tagLine)); if (g.welcomeMessage) body.append(h("p", {}, g.welcomeMessage));
+      const inputs = [];
+      const field = (label, type) => { const i = h("input", { type: type || "text", placeholder: label, "aria-label": label }); inputs.push(i); body.append(h("label", { style: "font-size:12px" }, label), i); };
+      if (g.guestNetworkType === "GuestPass") field("Enter your code"); else if (g.guestNetworkType === "SelfSignIn") { field("Your name"); field("Email", "email"); field("Mobile number", "tel"); } else if (g.guestNetworkType === "HostApproval") { field("Your name"); field("Email of the person you're visiting", "email"); }
+      let cb = null, cont;
+      if (g.termsAndConditions) { body.append(h("div", { class: "terms" }, g.termsAndConditions)); cb = h("input", { type: "checkbox", style: "width:auto", onchange: (e) => { cont.disabled = !e.target.checked; } }); body.append(h("label", { style: "display:flex;gap:8px;margin-top:8px" }, cb, "I accept the terms and conditions")); }
+      const msg = h("p", { class: "warn" });
+      cont = btn(g.guestNetworkType === "HostApproval" ? "Ask for approval" : "Connect", () => { if (inputs.some((x) => !x.value.trim())) { msg.textContent = "Please fill in every field."; return; } if (g.guestNetworkType === "HostApproval") { body.replaceChildren(h("h3", {}, "Waiting for approval"), h("p", {}, `A message was sent to the person you're visiting (allowed domains: ${(g.hostDomains || []).join(", ") || "any"}). In RUCKUS One they approve for up to ${((g.hostDurationChoices || []).map(Number).filter(Boolean).join(" / ")) || "?"} hours.`), btn("Pretend they approved", () => show(true))); return; } show(true); }, !!g.termsAndConditions);
+      body.append(msg, cont);
+    }
+    [...body.childNodes].forEach((n) => { if (n.nodeType === 3 && n.textContent === "null") n.remove(); });
+    screen.replaceChildren(h("div", { class: "phone", style: "font-family:Arial,sans-serif" }, h("div", { style: `background:${c.headerBarBackgroundColor};color:${c.fontHeaderColor};padding:9px 12px;font-size:16px` }, h("b", {}, g.title || g.name || "Guest Wi-Fi")), body));
+  };
+  show(false);
+}
+
 /* ---------- preview ---------- */
 function renderPreview(P) {
   const Pv = S.preview, stale = Pv && S.previewKey !== key();
-  P.append(h("div", { style: "display:flex;gap:8px;align-items:center;margin-bottom:8px" }, h("button", { class: "btn primary", onclick: doPreview, id: "runPreview" }, Pv ? "Preview again" : "Preview changes"), h("span", { class: "hint" }, "Reads RUCKUS One; sends nothing.")));
+  P.append(h("div", { style: "display:flex;gap:8px;align-items:center;margin-bottom:8px" }, h("button", { class: "btn primary", onclick: doPreview, id: "runPreview" }, Pv ? "Preview again" : "Preview changes"), h("button", { class: "btn", onclick: () => setTab("try") }, "▶ Try it as a visitor"), h("span", { class: "hint" }, "Reads RUCKUS One; sends nothing.")));
   if (S.fixNote && S.fixNote.length) P.append(h("div", { class: "note ok" }, S.fixNote.map((m) => h("div", {}, "✔ " + m))));
   if (S.applied) P.append(h("div", { class: "note " + (S.applied.ok ? "ok" : "bad") }, S.applied.text, S.applied.undo ? h("div", { style: "margin-top:6px" }, "To remove everything this tool created: ", h("code", {}, "node bin/undo.js --yes")) : null));
   if (!Pv) { P.append(h("div", { class: "note" }, "Preview shows the finished workflow, every object that would be created, and each call, before anything is sent.")); return; }
@@ -802,7 +961,7 @@ function setRW(px) { px = Math.max(320, Math.min(760, px)); document.documentEle
   window.addEventListener("resize", applyZoom);
   const rsz = $("#rsz");
   rsz.addEventListener("pointerdown", (e) => { rsz.setPointerCapture(e.pointerId); rsz.classList.add("on"); const move = (ev) => setRW(window.innerWidth - ev.clientX); const up = () => { rsz.classList.remove("on"); rsz.removeEventListener("pointermove", move); rsz.removeEventListener("pointerup", up); }; rsz.addEventListener("pointermove", move); rsz.addEventListener("pointerup", up); });
-  $("#tabStep").addEventListener("click", () => setTab("step")); $("#tabLook").addEventListener("click", () => setTab("look")); $("#tabProblems").addEventListener("click", () => setTab("problems")); $("#tabPreview").addEventListener("click", () => setTab("preview"));
+  $("#tabStep").addEventListener("click", () => setTab("step")); $("#tabLook").addEventListener("click", () => setTab("look")); $("#tabTry").addEventListener("click", () => setTab("try")); $("#tabProblems").addEventListener("click", () => setTab("problems")); $("#tabPreview").addEventListener("click", () => setTab("preview"));
 })();
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") { if ($("#modal").children.length) closeModal(); else if (S.selected) select(null); return; }
