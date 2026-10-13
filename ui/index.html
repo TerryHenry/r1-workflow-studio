@@ -312,9 +312,11 @@ function renderCanvas() {
   const flow = $("#flow"); flow.replaceChildren();
   if (S.obj) { flow.append(objectForm()); applyZoom(); return; }
   if (!S.wf) { flow.append(h("p", { class: "empty" }, "Open a workflow on the left, or start a blank one.")); applyZoom(); return; }
-  flow.append(h("div", { class: "cap" }, "Start"), ...steps(S.wf.steps), h("div", { class: "link arrow" }), h("div", { class: "cap" }, "End"));
+  flow.append(h("div", { class: "cap" }, "Start"), ...steps(S.wf.steps), ...endCap(S.wf.steps));
   applyZoom();
 }
+// A path ends with "End" -- unless its last step is a split, whose own branches carry on and end themselves.
+function endCap(arr) { const last = arr[arr.length - 1]; return last && last.options ? [] : [h("div", { class: "link arrow" }), h("div", { class: "cap" }, "End")]; }
 function steps(arr) {
   const out = [h("div", { class: "link" }), addBtn(arr, 0)];
   arr.forEach((n, i) => {
@@ -357,7 +359,7 @@ function inlineRename(n, el) {
 function branches(n) {
   return h("div", { class: "branches" }, (n.options || []).map((o) => h("div", { class: "branch" },
     h("button", { class: "bh", title: o.conditions ? o.conditions.map(condText).join(" and ") : (o.text || "Click to edit the options"), onclick: () => select(n.id) }, o.name || "(unnamed)"),
-    steps(o.steps), h("div", { class: "link arrow" }), h("div", { class: "cap" }, "End"))));
+    steps(o.steps), ...endCap(o.steps))));
 }
 
 /* ---------- zoom ---------- */
