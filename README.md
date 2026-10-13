@@ -162,10 +162,17 @@ Live results (2026-10-13, your tenant):
   with the portal page text; `POST /workflows/{id}/uiConfigurations` (multipart: the JSON plus logo/background/icon files) stores the
   title, colors and a 2.1 MB logo (R1 can take 30+ seconds to process it). Images come back from
   `GET /workflows/{id}/uiConfigurations/{logo|background|icon}` as a signed link, served as a generic octet-stream.
-- Not yet built: R1's **logical split** (`FUNCTIONAL_SPLIT`, "Logical Split" in the R1 GUI: branches of conditions on Device OS,
-  Device Type, Language, Browser Name, Captive Portal SSID, Device MAC / IP address). The published API docs do not define its
-  condition format, so it needs a sample made in the R1 GUI to read. Cloudpath look and feel is not converted yet (needs a crawl of
-  its Look & Feel tab).
+- Confirmed (logical split, read from a split made in the R1 GUI, workflow `a test workflow`): R1's "Logical Split" is the `FUNCTIONAL_SPLIT`
+  step; each branch is an option whose action carries `evaluationConditions: [{ sourceActionId, variableName, operation, evaluationRegex }]`
+  (seen: `CP_DEVICE_TYPE` `EQUALS` `phone`). The editor has a **Logical split** step with branches and conditions, imports existing ones,
+  and built a nested split live. Only the Device-type variable name and the `EQUALS` operator are known: any other variable name can be
+  typed in the editor, and the other GUI fields (Device OS, Language, Browser Name, Captive Portal SSID, Device MAC / IP address) and
+  evaluators need a sample that uses them. A condition on an earlier form field (`sourceActionId`) is kept by name only.
+- Confirmed (builder rules learned live): R1 allows **no two enrollment actions with the same name in the tenant** (every action gets a
+  short unique suffix); step labels are at most 32 characters; R1 lists return **10 per page** (the importer pages through all of them).
+- Cloudpath look and feel is read by the crawler (each workflow's Look & Feel tab) and converted: titles and any customized colors map to
+  R1's look; page styles, custom HTML/CSS and image files do not (listed as notes). In your training instance everything is default
+  except two welcome titles.
 - Not yet confirmed live: MAC registration pools, activating an SSID on a venue (`--venue`),
   and applying a workflow that creates new pools/templates from the editor. Confirmed: the editor's Apply with an existing pool
   (AUP + DPSK, VALID in R1, recorded in data/created.json). Try each kind on one small workflow, check it in the R1 UI,

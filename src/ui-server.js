@@ -13,7 +13,7 @@ const crypto = require("crypto");
 const { convertAll } = require("./convert");
 const { Builder, makeApi } = require("./build");
 const { loadInventory } = require("./inventory");
-const { ACTIONS, fromPlan, validate, toBuildWorkflow, blankWorkflow, createMissing, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, GUEST_FIELDS, blankGuestNetwork, validateGuestNetwork, LOOK_COLORS, DEFAULT_LOOK, guestFromPlan } = require("./model");
+const { ACTIONS, fromPlan, validate, toBuildWorkflow, blankWorkflow, createMissing, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, GUEST_FIELDS, blankGuestNetwork, validateGuestNetwork, LOOK_COLORS, DEFAULT_LOOK, guestFromPlan, LOGIC_FIELDS, LOGIC_OPS, lookFromCloudpath } = require("./model");
 const { importWorkflow, importCertTemplate, importGuestNetwork } = require("./r1import");
 const { appendCreated } = require("./ledger");
 
@@ -32,7 +32,12 @@ function createUiServer({ client = null, crawl = null, mapping = {}, root = path
     if (!crawl) return [];
     const i = await getInv();
     const plan = convertAll(crawl, mapping);
-    return plan.workflows.map((w) => fromPlan(w, i, crawl.objects));
+    return plan.workflows.map((w) => {
+      const model = fromPlan(w, i, crawl.objects);
+      const raw = crawl.workflows.find((x) => x.name === w.name), lf = raw && lookFromCloudpath(raw.look, w.name);
+      if (lf) { model.look = lf.look; model.source = { ...model.source, lookNotes: lf.notes }; }
+      return model;
+    });
   }
 
   // Runs the builder against the model. apply=false: reads from R1, writes nothing.
@@ -93,7 +98,7 @@ function createUiServer({ client = null, crawl = null, mapping = {}, root = path
 
   const routes = {
     "GET /api/state": async () => ({
-      schema: ACTIONS, templateFields: TEMPLATE_FIELDS, blankTemplate: blankTemplate(), guestFields: GUEST_FIELDS, blankGuest: blankGuestNetwork(), lookColors: LOOK_COLORS, defaultLook: DEFAULT_LOOK, inventory: await getInv(), live: !!client, hasCloudpath: !!crawl,
+      schema: ACTIONS, templateFields: TEMPLATE_FIELDS, blankTemplate: blankTemplate(), guestFields: GUEST_FIELDS, blankGuest: blankGuestNetwork(), lookColors: LOOK_COLORS, defaultLook: DEFAULT_LOOK, logicFields: LOGIC_FIELDS, logicOps: LOGIC_OPS, inventory: await getInv(), live: !!client, hasCloudpath: !!crawl,
       cloudpath: await cloudpathModels(), drafts: listDrafts(), blank: blankWorkflow(),
     }),
     "POST /api/refresh": async () => ({ inventory: await getInv(true) }),

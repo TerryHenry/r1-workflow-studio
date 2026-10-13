@@ -11,6 +11,7 @@ const FROM_ACTION = {
   AUP: (a) => ({ ...pick(a, ["title", "messageHtml", "checkboxText", "checkboxDefaultState", "backButtonText", "continueButtonText", "bottomLabel", "aupPlainText"]), checkboxHighlightColor: hex(a.checkboxHighlightColor) || "#FCFFB3" }),
   DATA_PROMPT: (a) => ({ ...pick(a, ["title", "messageHtml", "displayTitle", "displayMessageHtml"]), messageHtml: a.messageHtml || "", variables: (a.variables || []).map((v) => ({ label: v.label, type: v.type, ...(v.regex ? { regex: v.regex } : {}) })) }),
   DISPLAY_MESSAGE: (a) => pick(a, ["title", "messageHtml", "bottomLabel", "backButtonText", "continueButtonText", "displayBackButton", "displayContinueButton", "killSession"]),
+  FUNCTIONAL_SPLIT: () => ({}),
   USER_SELECTION_SPLIT: (a) => ({ ...pick(a, ["title", "displayTitle", "displayMessageHtml"]), messageHtml: a.messageHtml || "" }),
   DPSK: (a) => ({ mode: "existing", dpskPoolId: a.dpskPoolId, ...pick(a, ["emailNotification", "smsNotification", "qrCodeDisplay"]) }),
   MAC_REG: (a) => ({ mode: "existing", macRegListId: a.macRegListId, clientEnterMacAddress: !!a.clientEnterMacAddress }),
@@ -47,10 +48,21 @@ async function importLook(client, id, warnings, fetchImpl = fetch) {
   return isDefault ? undefined : look;
 }
 
+// R1 lists come back a page at a time (10 by default): read every page.
+async function allRows(call, path) {
+  const out = [];
+  for (let page = 0; page < 100; page++) {
+    const res = await call("GET", `${path}${path.includes("?") ? "&" : "?"}page=${page}&size=100`);
+    out.push(...rows(res));
+    if (!res || !res.paging || page + 1 >= (res.paging.pageCount || 1)) break;
+  }
+  return out;
+}
+
 async function importWorkflow(client, id, fetchImpl) {
   const call = (m, p) => client.call(m, p);
   const wf = await call("GET", `/workflows/${id}`);
-  const steps = rows(await call("GET", `/workflows/${id}/steps`));
+  const steps = await allRows(call, `/workflows/${id}/steps`);
   const by = Object.fromEntries(steps.map((s) => [s.id, s]));
   const warnings = [];
   const actionCache = {};
@@ -60,20 +72,26 @@ async function importWorkflow(client, id, fetchImpl) {
   async function node(step) {
     const a = await action(step.enrollmentActionId);
     const type = step.actionType || a.actionType;
-    const spec = ACTIONS[type], conv = FROM_ACTION[type];
+    const editorType = type === "FUNCTIONAL_SPLIT" ? "LOGICAL_SPLIT" : type;
+    const spec = ACTIONS[editorType], conv = FROM_ACTION[type];
     const label = (step.label || "").trim();
     const name = label || (spec && spec.label) || type;
     if (!spec || !conv) {
       warnings.push(`Step “${name}” is a ${type} step, which the editor can't edit yet. It is kept as a placeholder: replace or delete it.`);
       return { id: uid(), type: PLACEHOLDER, name, params: {}, source: { notes: [`R1 step type ${type} isn't supported by the editor yet.`] } };
     }
-    const n = { id: uid(), type, name, params: { ...JSON.parse(JSON.stringify(spec.defaults)), ...conv(a) } };
-    if (type === "USER_SELECTION_SPLIT") {
-      const opts = rows(await call("GET", `/workflows/${id}/steps/${step.id}/splitOptions`));
+    const n = { id: uid(), type: editorType, name, params: { ...JSON.parse(JSON.stringify(spec.defaults)), ...conv(a) } };
+    if (type === "USER_SELECTION_SPLIT" || type === "FUNCTIONAL_SPLIT") {
+      const opts = await allRows(call, `/workflows/${id}/steps/${step.id}/splitOptions`);
       n.options = [];
       for (const o of opts) {
         const oa = o.enrollmentActionId ? await action(o.enrollmentActionId) : {};
-        n.options.push({ id: uid(), name: o.optionName, text: oa.messageHtml || "", steps: await chain(by[o.nextStepId]) });
+        const opt = { id: uid(), name: o.optionName, text: oa.messageHtml || "", steps: await chain(by[o.nextStepId]) };
+        if (type === "FUNCTIONAL_SPLIT") {
+          opt.conditions = (oa.evaluationConditions || []).map((c) => ({ variable: c.variableName, operation: c.operation, value: c.evaluationRegex == null ? "" : String(c.evaluationRegex) }));
+          if ((oa.evaluationConditions || []).some((c) => c.sourceActionId)) warnings.push(`A condition in branch “${o.optionName}” compares a field from an earlier form step; the copy keeps the field name but not the link to that step. Check it.`);
+        }
+        n.options.push(opt);
       }
     }
     return n;

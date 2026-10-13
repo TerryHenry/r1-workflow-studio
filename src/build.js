@@ -222,8 +222,15 @@ class Builder {
     return { body: clean(body) };
   }
 
+  // R1 refuses a second enrollment action with the same name anywhere in the tenant, so each action gets a short unique suffix
+  // (the visible step label is separate and unchanged).
+  uniqueName(base) {
+    const suffix = "-" + require("crypto").randomBytes(3).toString("hex");
+    return String(base || "action").slice(0, 100 - suffix.length) + suffix;
+  }
+
   async createAction(body, parentId) {
-    const res = await this.api.write("POST", "/enrollmentActions", clean({ ...body, parentActionId: parentId }));
+    const res = await this.api.write("POST", "/enrollmentActions", clean({ ...body, name: this.uniqueName(body.name), parentActionId: parentId }));
     const id = idOf(res);
     if (this.api.apply) { this.record("action", id, body.name, `/enrollmentActions/${id}`); await this.waitFor(`/enrollmentActions/${id}`); }
     return id;

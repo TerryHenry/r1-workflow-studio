@@ -173,8 +173,8 @@ function slimWf(wf) {
 const uid = () => "n" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-3);
 const store = { get(k, d) { try { const v = localStorage.getItem("wfe." + k); return v == null ? d : v; } catch { return d; } }, set(k, v) { try { localStorage.setItem("wfe." + k, v); } catch {} } };
 
-const S = { schema: {}, inv: {}, cloudpath: [], drafts: [], wf: null, obj: null, tplFields: [], blankTpl: null, guestFields: [], blankGuest: null, lookColors: [], defaultLook: null, importNotes: null, source: "", selected: null, issues: [], previewKey: null, preview: null, applied: null, dirty: false, live: false, tab: "step", zoom: 1, fit: true };
-const ICON = { AUP: "📜", DATA_PROMPT: "📝", DISPLAY_MESSAGE: "💬", USER_SELECTION_SPLIT: "⑂", DPSK: "🔑", MAC_REG: "📱", CERT_TEMPLATE: "🎫", PASSPHRASE: "🔐", CAPTIVE_PORTAL: "🌐", LDAP_AUTH_PROVIDER: "🛂", IDP_AUTH_PROVIDER: "🛂", UNSUPPORTED: "⛔" };
+const S = { logicFields: [], logicOps: [], schema: {}, inv: {}, cloudpath: [], drafts: [], wf: null, obj: null, tplFields: [], blankTpl: null, guestFields: [], blankGuest: null, lookColors: [], defaultLook: null, importNotes: null, source: "", selected: null, issues: [], previewKey: null, preview: null, applied: null, dirty: false, live: false, tab: "step", zoom: 1, fit: true };
+const ICON = { AUP: "📜", DATA_PROMPT: "📝", DISPLAY_MESSAGE: "💬", USER_SELECTION_SPLIT: "⑂", LOGICAL_SPLIT: "🧭", DPSK: "🔑", MAC_REG: "📱", CERT_TEMPLATE: "🎫", PASSPHRASE: "🔐", CAPTIVE_PORTAL: "🌐", LDAP_AUTH_PROVIDER: "🛂", IDP_AUTH_PROVIDER: "🛂", UNSUPPORTED: "⛔" };
 
 /* ---------- form objects: certificate templates and guest networks ---------- */
 const OBJ = {
@@ -195,8 +195,11 @@ function newNode(type, name) {
   const spec = S.schema[type];
   const node = { id: uid(), type, name: name || spec.label, params: clone(spec.defaults) };
   if (type === "USER_SELECTION_SPLIT") node.options = [{ id: uid(), name: "Option 1", text: "", steps: [] }, { id: uid(), name: "Option 2", text: "", steps: [] }];
+  if (type === "LOGICAL_SPLIT") node.options = ["Branch 1", "Branch 2"].map((nm) => ({ id: uid(), name: nm, text: "", conditions: [newCond()], steps: [] }));
   return node;
 }
+const newCond = () => ({ variable: (S.logicFields[0] || ['CP_DEVICE_TYPE'])[0], operation: (S.logicOps[0] || ['EQUALS'])[0], value: "" });
+const condText = (c) => `${(S.logicFields.find((f) => f[0] === c.variable) || [0, c.variable])[1]} ${(S.logicOps.find((o) => o[0] === c.operation) || [0, c.operation])[1]} ${c.value}`;
 function withNewIds(n) { const c = clone(n); (function re(x) { x.id = uid(); (x.options || []).forEach((o) => { o.id = uid(); o.steps.forEach(re); }); })(c); return c; }
 const options = () => ({ prefix: $("#prefix").value.trim(), venueId: $("#venue").value || undefined });
 const key = () => JSON.stringify(S.obj ? { object: S.obj, options: options() } : { workflow: S.wf, options: options() });
@@ -210,6 +213,7 @@ function summarize(n) {
   switch (n.type) {
     case "AUP": case "DISPLAY_MESSAGE": return p.title || "";
     case "DATA_PROMPT": return (p.variables || []).map((v) => v.label).join(", ");
+    case "LOGICAL_SPLIT": return (n.options || []).length + " branches: " + (n.options || []).map((o) => o.name).join(" / ");
     case "USER_SELECTION_SPLIT": return (n.options || []).length + " options: " + (n.options || []).map((o) => o.name).join(" / ");
     case "DPSK": return p.mode === "new" ? `New pool “${p.newName || "…"}”, ${p.passphraseLength || 12} chars` + ((p.ssids || []).length ? `, ${(p.ssids || []).length} Wi-Fi network(s)` : "") : "Pool: " + (nameOf(inv.dpskPools, p.dpskPoolId) || "(choose one)");
     case "MAC_REG": return p.mode === "new" ? `New list “${p.newName || "…"}”` : "List: " + (nameOf(inv.macPools, p.macRegListId) || "(choose one)");
@@ -226,7 +230,7 @@ function outlineLines(steps, indent = "") {
   steps.forEach((n) => {
     const spec = S.schema[n.type], what = n.type === "UNSUPPORTED" ? "⛔ (no R1 equivalent)" : (ICON[n.type] || "•") + " " + (spec ? spec.label : n.type);
     out.push(`${indent}${what}: ${n.name}` + (summarize(n) && n.type !== "UNSUPPORTED" ? `  — ${summarize(n)}` : ""));
-    (n.options || []).forEach((o) => { out.push(`${indent}   ⑂ If “${o.name}”`); out.push(...outlineLines(o.steps, indent + "      ")); if (!o.steps.length) out.push(`${indent}      (nothing yet)`); });
+    (n.options || []).forEach((o) => { out.push(`${indent}   ⑂ If “${o.name}”${o.conditions ? " (" + o.conditions.map(condText).join(" and ") + ")" : ""}`); out.push(...outlineLines(o.steps, indent + "      ")); if (!o.steps.length) out.push(`${indent}      (nothing yet)`); });
   });
   return out;
 }
@@ -338,7 +342,7 @@ function inlineRename(n, el) {
 }
 function branches(n) {
   return h("div", { class: "branches" }, (n.options || []).map((o) => h("div", { class: "branch" },
-    h("button", { class: "bh", title: o.text || "Click to edit the options", onclick: () => select(n.id) }, o.name || "(unnamed)"),
+    h("button", { class: "bh", title: o.conditions ? o.conditions.map(condText).join(" and ") : (o.text || "Click to edit the options"), onclick: () => select(n.id) }, o.name || "(unnamed)"),
     steps(o.steps), h("div", { class: "link arrow" }), h("div", { class: "cap" }, "End"))));
 }
 
@@ -394,7 +398,7 @@ function renderStep(R) {
     if (n.source && n.source.cloudpathKind === "oob" && S.wf.source && S.wf.source.cloudpath) R.append(h("div", { class: "note" },
       h("b", {}, "Voucher codes are a guest pass in R1. "), "Build a guest network instead: a Wi-Fi network where visitors enter their pass on a portal page, filled in from this workflow. This workflow's other steps are unaffected.",
       h("div", { style: "margin-top:6px" }, h("button", { class: "btn small primary", onclick: () => buildGuestFromCloudpath(S.wf.source.cloudpath) }, "Build a guest network instead"))));
-    R.append(h("div", { class: "field" }, h("label", {}, "Replace with"), h("select", { onchange: (e) => { if (e.target.value) replaceNode(n.id, e.target.value); } }, h("option", { value: "" }, "Choose a step type…"), Object.entries(S.schema).filter(([k]) => k !== "USER_SELECTION_SPLIT").map(([k, v]) => h("option", { value: k }, v.label)))));
+    R.append(h("div", { class: "field" }, h("label", {}, "Replace with"), h("select", { onchange: (e) => { if (e.target.value) replaceNode(n.id, e.target.value); } }, h("option", { value: "" }, "Choose a step type…"), Object.entries(S.schema).filter(([k]) => k !== "USER_SELECTION_SPLIT" && k !== "LOGICAL_SPLIT").map(([k, v]) => h("option", { value: k }, v.label)))));
   } else {
     R.append(h("div", { class: "field" }, h("label", {}, "Step name"), h("input", { type: "text", value: n.name, maxlength: 100, oninput: (e) => { n.name = e.target.value; changed(false); } })));
     R.append(h("div", { class: "field" }, h("label", {}, "Step type"), h("select", { onchange: (e) => replaceNode(n.id, e.target.value, true) }, Object.entries(S.schema).map(([k, v]) => h("option", { value: k, selected: k === n.type }, v.label)))));
@@ -446,17 +450,34 @@ function fieldEl(n, fd) {
 }
 
 function optionsEditor(n) {
-  const wrap = h("div", { class: "field" }, h("label", {}, "Options (each is a path through the workflow)"));
+  const logical = n.type === "LOGICAL_SPLIT";
+  const wrap = h("div", { class: "field" }, h("label", {}, logical ? "Branches (each has conditions on the visitor's device)" : "Options (each is a path through the workflow)"));
   n.options.forEach((o, i) => {
-    wrap.append(h("div", { class: "note" },
-      h("div", { class: "row" }, h("input", { type: "text", value: o.name, placeholder: "Option name", oninput: (e) => { o.name = e.target.value; changed(false); } }),
+    const box = h("div", { class: "note" },
+      h("div", { class: "row" }, h("input", { type: "text", value: o.name, placeholder: logical ? "Branch name" : "Option name", oninput: (e) => { o.name = e.target.value; changed(false); } }),
         h("button", { class: "btn small", title: "Move left", onclick: () => { if (i > 0) { n.options.splice(i - 1, 0, n.options.splice(i, 1)[0]); changed(true); } } }, "←"),
         h("button", { class: "btn small", title: "Move right", onclick: () => { if (i < n.options.length - 1) { n.options.splice(i + 1, 0, n.options.splice(i, 1)[0]); changed(true); } } }, "→"),
-        h("button", { class: "btn small danger", title: "Remove option", onclick: () => { if (!o.steps.length || confirm("Delete this option and its steps?")) { n.options.splice(i, 1); changed(true); validate(); } } }, "✕")),
-      h("input", { type: "text", value: o.text || "", maxlength: 100, placeholder: "Text shown under the option (up to 100 characters)", oninput: (e) => { o.text = e.target.value; changed(false); } }),
-      o.criteria ? h("div", { class: "hint" }, "Cloudpath rule: " + o.criteria) : null));
+        h("button", { class: "btn small danger", title: "Remove", onclick: () => { if (!o.steps.length || confirm("Delete this " + (logical ? "branch" : "option") + " and its steps?")) { n.options.splice(i, 1); changed(true); validate(); } } }, "✕")));
+    if (logical) {
+      o.conditions = o.conditions || [];
+      o.conditions.forEach((c, ci) => {
+        const known = S.logicFields.some((f) => f[0] === c.variable);
+        const sel = h("select", { onchange: (e) => { if (e.target.value === "__custom") { c.variable = ""; changed(true); } else { c.variable = e.target.value; changed(true); } } },
+          S.logicFields.map((f) => h("option", { value: f[0], selected: f[0] === c.variable }, f[1])), h("option", { value: "__custom", selected: !known }, "Other field…"));
+        box.append(h("div", { class: "row", style: "margin-top:6px;flex-wrap:wrap" }, sel,
+          !known ? h("input", { type: "text", value: c.variable || "", placeholder: "R1 variable name, e.g. CP_DEVICE_OS", style: "max-width:190px", oninput: (e) => { c.variable = e.target.value.trim(); changed(false); } }) : null,
+          h("select", { style: "max-width:110px", onchange: (e) => { c.operation = e.target.value; changed(false); } }, S.logicOps.map((op) => h("option", { value: op[0], selected: op[0] === c.operation }, op[1]))),
+          h("input", { type: "text", value: c.value == null ? "" : c.value, placeholder: "value", style: "max-width:130px", oninput: (e) => { c.value = e.target.value; changed(false); } }),
+          h("button", { class: "btn small", title: "Remove condition", onclick: () => { o.conditions.splice(ci, 1); changed(true); validate(); } }, "✕")));
+      });
+      box.append(h("button", { class: "btn small", style: "margin-top:6px", onclick: () => { o.conditions.push(newCond()); changed(true); validate(); } }, "＋ Add condition"));
+    } else {
+      box.append(h("input", { type: "text", value: o.text || "", maxlength: 100, placeholder: "Text shown under the option (up to 100 characters)", oninput: (e) => { o.text = e.target.value; changed(false); } }), o.criteria ? h("div", { class: "hint" }, "Cloudpath rule: " + o.criteria) : null);
+    }
+    wrap.append(box);
   });
-  wrap.append(h("button", { class: "btn small", onclick: () => { n.options.push({ id: uid(), name: "Option " + (n.options.length + 1), text: "", steps: [] }); changed(true); } }, "＋ Add option"));
+  wrap.append(h("button", { class: "btn small", onclick: () => { n.options.push(logical ? { id: uid(), name: "Branch " + (n.options.length + 1), text: "", conditions: [newCond()], steps: [] } : { id: uid(), name: "Option " + (n.options.length + 1), text: "", steps: [] }); changed(true); validate(); } }, logical ? "＋ Add branch" : "＋ Add option"));
+  if (logical) wrap.append(h("div", { class: "hint", style: "margin-top:6px" }, "Known field: device type (e.g. phone). Any other R1 variable name can be typed under “Other field…”. How several conditions in one branch combine is R1's rule: check it in R1 after creating."));
   return wrap;
 }
 
@@ -496,6 +517,7 @@ function renderLook(P) {
   const wf = S.wf;
   P.append(h("h2", {}, "Look and feel"), h("p", { class: "hint" }, "How the visitor's pages look: colors, titles, logo. If you leave this off, R1 uses its own defaults."));
   for (const m of S.importNotes || []) if (/image/.test(m)) P.append(h("div", { class: "note bad" }, m));
+  for (const m of (wf.source && wf.source.lookNotes) || []) P.append(h("div", { class: "note" }, m));
   if (!wf.look) {
     P.append(h("button", { class: "btn primary", onclick: () => { wf.look = clone(S.defaultLook); wf.look.welcomeTitle = wf.name; changed(true); validate(); } }, "Customize the look and feel"));
     return;
@@ -649,7 +671,7 @@ async function validate() {
 }
 function select(id) { S.selected = id; S.tab = "step"; renderCanvas(); renderRight(); }
 function palette(arr, index) {
-  const groups = [["Messages and prompts", ["AUP", "DATA_PROMPT", "DISPLAY_MESSAGE"]], ["Choices", ["USER_SELECTION_SPLIT"]], ["Get the visitor on the network", ["DPSK", "MAC_REG", "CERT_TEMPLATE", "PASSPHRASE", "CAPTIVE_PORTAL"]], ["Sign-in", ["LDAP_AUTH_PROVIDER", "IDP_AUTH_PROVIDER"]]];
+  const groups = [["Messages and prompts", ["AUP", "DATA_PROMPT", "DISPLAY_MESSAGE"]], ["Choices", ["USER_SELECTION_SPLIT", "LOGICAL_SPLIT"]], ["Get the visitor on the network", ["DPSK", "MAC_REG", "CERT_TEMPLATE", "PASSPHRASE", "CAPTIVE_PORTAL"]], ["Sign-in", ["LDAP_AUTH_PROVIDER", "IDP_AUTH_PROVIDER"]]];
   const list = h("div", {});
   const draw = (q) => {
     list.replaceChildren();
@@ -807,7 +829,7 @@ $("#btnUndo").addEventListener("click", undo); $("#btnRedo").addEventListener("c
 (async function init() {
   try {
     const st = await api("/api/state");
-    Object.assign(S, { schema: st.schema, inv: st.inventory, cloudpath: st.cloudpath, drafts: st.drafts, blank: st.blank, live: st.live, tplFields: st.templateFields, blankTpl: st.blankTemplate, guestFields: st.guestFields, blankGuest: st.blankGuest, lookColors: st.lookColors, defaultLook: st.defaultLook });
+    Object.assign(S, { schema: st.schema, inv: st.inventory, cloudpath: st.cloudpath, drafts: st.drafts, blank: st.blank, live: st.live, tplFields: st.templateFields, blankTpl: st.blankTemplate, guestFields: st.guestFields, blankGuest: st.blankGuest, logicFields: st.logicFields, logicOps: st.logicOps, lookColors: st.lookColors, defaultLook: st.defaultLook });
     for (const w of S.cloudpath) { try { w._issues = (await api("/api/validate", { workflow: w, options: {} })).issues.filter((i) => i.level === "error").length; } catch { w._issues = 0; } }
     S.wf = null; renderAll();
   } catch (e) { $("#flow").append(h("p", { style: "color:var(--bad)" }, "Could not load: " + e.message)); }

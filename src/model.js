@@ -31,6 +31,7 @@ const ACTIONS = {
       f("displayBackButton", "Show back button", "bool"), f("displayContinueButton", "Show continue button", "bool"), f("killSession", "End the session", "bool")] },
   USER_SELECTION_SPLIT: { label: "Visitor chooses a path", category: "split", help: "Shows buttons; each option is its own branch.", defaults: { title: "Choose one", displayTitle: true, messageHtml: "", displayMessageHtml: false },
     fields: [f("title", "Title", "text", { max: 100, required: true }), f("displayTitle", "Show title", "bool"), f("messageHtml", "Message", "textarea", { max: 1000 }), f("displayMessageHtml", "Show message", "bool")] },
+  LOGICAL_SPLIT: { label: "Logical split (by device)", category: "split", help: "Sends the visitor down a branch automatically, by a condition on their device (type, OS, language...). Each branch has one or more conditions.", defaults: {}, fields: [] },
   DPSK: { label: "Give a DPSK passphrase", category: "onboard", help: "Issues a personal Wi-Fi passphrase from a DPSK pool.", defaults: { mode: "existing", passphraseFormat: "MOST_SECURED", passphraseLength: 12, emailNotification: false, smsNotification: false, qrCodeDisplay: false, ssids: [] },
     fields: [f("mode", "DPSK pool", "mode", { choices: [["existing", "Use an existing pool"], ["new", "Create a new pool"]] }),
       f("dpskPoolId", "Pool", "ref", { ref: "dpskPools", showIf: { mode: "existing" }, required: true }),
@@ -133,6 +134,28 @@ function lookParts(look) {
   return parts;
 }
 
+// Cloudpath "Look & Feel" form fields -> an R1 look, or null when it is all Cloudpath defaults with no titles (nothing to carry over).
+// Returns { look, notes } | null. R1's portal look is narrower than Cloudpath's HTML templates: what can't be carried over is listed in notes.
+function lookFromCloudpath(cp, workflowName) {
+  if (!cp) return null;
+  const hex = (c) => (c ? (String(c).startsWith("#") ? String(c) : "#" + String(c)).toUpperCase() : undefined);
+  const MAP = { backgroundColor: "webBackgroundColor", lineColor: "webLineColor", headerBarBackgroundColor: "webHeaderTopbarColor", startOverFontColor: "webHeaderStartOverColor", buttonColor: "webButtonBackgroundColor", buttonFontColor: "webButtonFontColor" };
+  const look = JSON.parse(JSON.stringify(DEFAULT_LOOK));
+  for (const [r1k, cpk] of Object.entries(MAP)) if (hex(cp[cpk])) look.colors[r1k] = hex(cp[cpk]);
+  look.welcomeTitle = cp.welcomeTitle1 || cp.webTitle || ""; look.welcomeName = cp.welcomeTitle2 || "";
+  const custom = JSON.stringify(look.colors) !== JSON.stringify(DEFAULT_LOOK.colors);
+  const notes = [];
+  if (cp.templateStyle && !/^Modern \(Ruckus\)$/.test(cp.templateStyle)) notes.push(`Cloudpath uses the "${cp.templateStyle}" page style, which R1 doesn't have: R1's portal has one layout, so only the colors and titles are carried over.`);
+  for (const [k, what] of [["htmlTemplateFile", "a custom HTML template"], ["cssOverrideFile", "a CSS override file"], ["customZipFile", "a custom page package"]]) if (cp[k]) notes.push(`Cloudpath uses ${what} (${cp[k]}); R1 can't take it, so it isn't carried over.`);
+  const imgs = [["webBackgroundImageFile", "background image"], ["bannerImageFile", "banner image"], ["iconFile", "icon"], ["appLogoFile", "app logo"]].filter(([k]) => cp[k]);
+  for (const [k, what] of imgs) notes.push(`Cloudpath has a ${what} (${cp[k]}). Download it from Cloudpath and add it in the Look tab: files can't be fetched automatically yet.`);
+  const unmapped = ["webHeaderRibbonColor", "webAccordionSelectedBackgroundColor", "webAccordionButtonBackgroundColor", "iconTextColor"].filter((k) => cp[k] && !["000000", "75787B"].includes(String(cp[k]).toUpperCase()));
+  if (unmapped.length) notes.push("Some Cloudpath colors have no R1 equivalent (ribbon, accordion, icon text) and were not carried over.");
+  if (!look.welcomeTitle && !look.welcomeName && !custom && !imgs.length && !notes.length) return null;
+  if (!look.welcomeTitle) look.welcomeTitle = workflowName || "Welcome";       // R1 requires a welcome title
+  return { look, notes };
+}
+
 // ---- guest network (a captive-portal network where visitors sign in with a pass) ----
 const GUEST_TYPES = [["GuestPass", "Guest pass (visitor enters a code)"], ["SelfSignIn", "Self sign-in (visitor registers)"], ["HostApproval", "Host approval"], ["ClickThrough", "Click through (accept terms only)"]];
 const GUEST_FIELDS = [
@@ -202,6 +225,13 @@ function guestFromPlan(cpWf) {
   return { guest: g, notes };
 }
 
+// Logical split conditions (R1 "Logical Split"; API action FUNCTIONAL_SPLIT). Read from a split made in the R1 GUI (workflow "a test workflow"):
+// each branch is an option whose action holds evaluationConditions [{ sourceActionId, variableName, operation, evaluationRegex }].
+// Only the names seen in that sample are listed; any other variable name can be typed in the editor.
+const LOGIC_FIELDS = [["CP_DEVICE_TYPE", "Device type"]];
+const LOGIC_OPS = [["EQUALS", "equals"]];
+const newCondition = () => ({ variable: LOGIC_FIELDS[0][0], operation: "EQUALS", value: "" });
+
 let seq = 0;
 const uid = (p = "n") => p + Date.now().toString(36) + (++seq).toString(36);
 
@@ -210,6 +240,7 @@ function newNode(type, name) {
   if (!spec) throw new Error("Unknown step type " + type);
   const node = { id: uid(), type, name: name || spec.label, params: JSON.parse(JSON.stringify(spec.defaults)) };
   if (type === "USER_SELECTION_SPLIT") node.options = [newOption("Option 1"), newOption("Option 2")];
+  if (type === "LOGICAL_SPLIT") node.options = [{ ...newOption("Branch 1"), conditions: [newCondition()] }, { ...newOption("Branch 2"), conditions: [newCondition()] }];
   return node;
 }
 function newOption(name) { return { id: uid("o"), name, text: "", steps: [] }; }
@@ -332,6 +363,24 @@ function validate(wf, inv = {}, opts = {}) {
         if (find(inv.macPools, n.params.newName)) add("error", `"${n.name}": a MAC list named "${n.params.newName}" already exists: choose it instead.`, n.id);
         newLists.add(lc(n.params.newName));
       }
+      if (n.type === "LOGICAL_SPLIT") {
+        if (!n.options || !n.options.length) add("error", `"${n.name}": a logical split needs at least one branch.`, n.id);
+        else if (n.options.length === 1) add("warn", `"${n.name}": with a single branch, visitors who don't match its conditions have no path. Add another branch.`, n.id);
+        const seen = new Set();
+        for (const o of n.options || []) {
+          if (!String(o.name || "").trim()) add("error", `"${n.name}": a branch has no name.`, n.id);
+          if (seen.has(lc(o.name))) add("error", `"${n.name}": two branches are called "${o.name}".`, n.id);
+          seen.add(lc(o.name));
+          if (!(o.conditions || []).length) add("error", `"${n.name}": branch "${o.name}" needs at least one condition.`, n.id);
+          for (const c of o.conditions || []) {
+            if (!String(c.variable || "").trim()) add("error", `"${n.name}": a condition in branch "${o.name}" has no field.`, n.id);
+            if (!LOGIC_OPS.some((x) => x[0] === c.operation)) add("error", `"${n.name}": a condition in branch "${o.name}" has an unknown comparison.`, n.id);
+            if (!String(c.value == null ? "" : c.value).length) add("error", `"${n.name}": a condition in branch "${o.name}" has no value to compare with.`, n.id);
+          }
+          if (!o.steps.length) add("warn", `"${n.name}": branch "${o.name}" has no steps.`, n.id);
+          walk(o.steps);
+        }
+      }
       if (n.type === "USER_SELECTION_SPLIT") {
         if (!n.options || n.options.length < 2) add("error", `"${n.name}": a choice needs at least two options.`, n.id);
         const seen = new Set();
@@ -407,6 +456,7 @@ function toBuildNodes(steps, inv = {}) {
       case "DATA_PROMPT": r1 = { actionType: "DATA_PROMPT", name, title: p.title, messageHtml: p.messageHtml || undefined, displayTitle: !!p.displayTitle, displayMessageHtml: !!p.displayMessageHtml,
         variables: (p.variables || []).map((v, i) => ({ label: v.label, type: v.type, regex: v.regex || undefined, position: i + 1 })) }; break;
       case "DISPLAY_MESSAGE": r1 = { actionType: "DISPLAY_MESSAGE", name, ...pick(p, ["title", "messageHtml", "bottomLabel", "backButtonText", "continueButtonText"]), displayBackButton: !!p.displayBackButton, displayContinueButton: !!p.displayContinueButton, killSession: !!p.killSession }; break;
+      case "LOGICAL_SPLIT": r1 = { actionType: "FUNCTIONAL_SPLIT", name }; break;
       case "USER_SELECTION_SPLIT": r1 = { actionType: "USER_SELECTION_SPLIT", name, title: p.title, messageHtml: p.messageHtml || undefined, displayTitle: !!p.displayTitle, displayMessageHtml: !!p.displayMessageHtml }; break;
       case "DPSK": {
         r1 = { actionType: "DPSK", name, emailNotification: !!p.emailNotification, smsNotification: !!p.smsNotification, qrCodeDisplay: !!p.qrCodeDisplay };
@@ -435,7 +485,10 @@ function toBuildNodes(steps, inv = {}) {
     }
     const node = { support: "auto", cloudpath: { name: n.name, label: n.name, kind: "editor" }, needs: [], notes: [], r1: stripEmpty(r1), ref };
     if (n.options) {
-      node.options = n.options.map((o) => ({ name: String(o.name).slice(0, 100), criteria: "", r1: { actionType: "USER_SELECTION_SPLIT_OPTION", name: String(o.name).slice(0, 100), messageHtml: o.text || undefined },
+      node.options = n.options.map((o) => ({ name: String(o.name).slice(0, 100), criteria: "",
+        r1: n.type === "LOGICAL_SPLIT"
+          ? { actionType: "FUNCTIONAL_SPLIT_OPTION", name: String(o.name).slice(0, 100), evaluationConditions: (o.conditions || []).map((c) => ({ sourceActionId: null, variableName: c.variable, operation: c.operation, evaluationRegex: String(c.value) })) }
+          : { actionType: "USER_SELECTION_SPLIT_OPTION", name: String(o.name).slice(0, 100), messageHtml: o.text || undefined },
         steps: toBuildNodes(o.steps, inv) }));
     }
     out.push(node);
@@ -462,4 +515,4 @@ function sniffImage(buf) {
   if (head.startsWith("<svg") || (head.startsWith("<?xml") && head.includes("<svg"))) return "image/svg+xml";
   return null;
 }
-module.exports = { guestFromPlan, sniffImage, LOOK_COLORS, DEFAULT_LOOK, validateLook, lookParts, GUEST_FIELDS, GUEST_TYPES, blankGuestNetwork, validateGuestNetwork, guestNetworkBody, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, createMissing, ACTIONS, PLACEHOLDER, ONBOARD, newNode, newOption, blankWorkflow, fromPlan, validate, toBuildWorkflow, toBuildNodes, outline, everyBranchOnboards, visible, uid };
+module.exports = { lookFromCloudpath, LOGIC_FIELDS, LOGIC_OPS, newCondition, guestFromPlan, sniffImage, LOOK_COLORS, DEFAULT_LOOK, validateLook, lookParts, GUEST_FIELDS, GUEST_TYPES, blankGuestNetwork, validateGuestNetwork, guestNetworkBody, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, createMissing, ACTIONS, PLACEHOLDER, ONBOARD, newNode, newOption, blankWorkflow, fromPlan, validate, toBuildWorkflow, toBuildNodes, outline, everyBranchOnboards, visible, uid };

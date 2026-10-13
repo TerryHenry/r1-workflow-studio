@@ -105,6 +105,16 @@
     const wf = { pk, name: (text.match(/Workflow - "([^"]*)"/) || [])[1] || "", portalUrl: (text.match(/\/enroll\/[^\s]+\//) || [])[0] || "",
       published: /Published/.test(text.slice(text.indexOf("Workflow - "), text.indexOf("Workflow - ") + 300)) && !/Unpublished/.test(text.slice(text.indexOf("Workflow - "), text.indexOf("Workflow - ") + 300)) };
     try { wf.steps = await readRegion(base, pk, items(doc), 0, 0, []); } catch (e) { wf.error = String(e); }
+    try {                                   // Look & Feel tab: the form's non-empty fields
+      const lf = parse(await get(href + "template")), look = {};
+      for (const e of lf.querySelectorAll("form input, form select, form textarea")) {
+        if (!e.name || /csrf|password|^cpnFormAction$|^tab$|-default$|-checkbox$/i.test(e.name)) continue;
+        if ((e.type === "radio" || e.type === "checkbox") && !e.checked) continue;
+        const v = e.tagName === "SELECT" ? clean((e.selectedOptions[0] || {}).textContent) : e.value;
+        if (v !== "") look[e.name] = String(v).slice(0, 200);
+      }
+      wf.look = look;
+    } catch (e) { wf.lookError = String(e); }
     result.workflows.push(wf);
     console.log("crawled", wf.name, wf.steps ? wf.steps.length + " steps" : wf.error);
   }

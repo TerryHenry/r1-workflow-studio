@@ -210,7 +210,7 @@ function fakeWorkflowApi() {
     o1: { id: "o1", actionType: "USER_SELECTION_SPLIT_OPTION", messageHtml: "Guests" }, o2: { id: "o2", actionType: "USER_SELECTION_SPLIT_OPTION", messageHtml: "" },
     a3: { id: "a3", actionType: "DPSK", dpskPoolId: "pool1", identityGroupId: "g1", qrCodeDisplay: true },
     a4: { id: "a4", actionType: "CERT_TEMPLATE", certTemplateId: "t1", identityGroupId: "g2" },
-    a5: { id: "a5", actionType: "FUNCTIONAL_SPLIT" },
+    a5: { id: "a5", actionType: "WORKFLOW_REFERENCE" },
   };
   const steps = [
     { id: "s0", type: "startStepDto", nextStepId: "s1" },
@@ -223,6 +223,7 @@ function fakeWorkflowApi() {
   const options = [{ optionName: "Guests", enrollmentActionId: "o1", nextStepId: "s3" }, { optionName: "Staff", enrollmentActionId: "o2", nextStepId: "s4" }];
   const writes = [];
   return { writes, client: { async call(method, p) {
+    p = p.split("?")[0];
     if (method !== "GET" && !/query/.test(p)) writes.push(method + " " + p);
     if (p === "/workflows/w1") return { id: "w1", name: "Orig", status: "VALID", startStepId: "s0", description: "" };
     if (p === "/workflows/w1/steps") return { content: steps };
@@ -260,7 +261,7 @@ test("import: unsupported R1 steps become placeholders; a certificate template b
   const { importWorkflow, importCertTemplate } = require("../src/r1import");
   const f = fakeWorkflowApi();
   // make the AUP step a functional split
-  const wrap = { async call(m, p) { if (p === "/workflows/w1/steps") { const s = (await f.client.call(m, p)).content.map((x) => (x.id === "s1" ? { ...x, actionType: "FUNCTIONAL_SPLIT", enrollmentActionId: "a5" } : x)); return { content: s }; } return f.client.call(m, p); } };
+  const wrap = { async call(m, p) { p = p.split("?")[0]; if (p === "/workflows/w1/steps") { const s = (await f.client.call(m, p)).content.map((x) => (x.id === "s1" ? { ...x, actionType: "WORKFLOW_REFERENCE", enrollmentActionId: "a5" } : x)); return { content: s }; } return f.client.call(m, p); } };
   const r = await importWorkflow(wrap, "w1");
   assert.equal(r.workflow.steps[0].type, "UNSUPPORTED");
   assert.match(r.warnings[0], /can't edit/);
@@ -378,6 +379,7 @@ test("import: a workflow's look and feel (with its logo) and a guest network are
   const { importWorkflow, importGuestNetwork } = require("../src/r1import");
   const f = fakeWorkflowApi();
   const wrap = { async call(m, p) {
+    p = p.split("?")[0];
     if (p === "/workflows/w1/uiConfigurations") return { welcomeTitle: "Hello", welcomeName: "Guest", uiColorSchema: { headerBarBackgroundColor: "#112233" }, uiStyleSchema: { logoImageFileName: "abc", logoSize: "LARGE", fontName: "Verdana", headerFontSize: 20 } };
     if (p === "/workflows/w1/uiConfigurations/logo") return { fileUrl: "https://files.example/logo" };
     if (m === "GET" && p === "/wifiNetworks/g1") return { id: "g1", name: "Lobby", type: "guest", wlan: { ssid: "lobby", wlanSecurity: "OWE", vlanId: 20 }, guestPortal: { guestNetworkType: "GuestPass", maxDevices: 2, userSessionTimeout: 300, guestPage: { title: "Hi", termsAndConditions: "T&C" }, walledGardens: ["a.com"] } };
@@ -415,4 +417,118 @@ test("guest network is suggested from a Cloudpath voucher workflow, and only fro
     assert.equal((await s.post("/api/guest/prefill", { name: "Policy only" })).status, 409, "no voucher step, no guest network");
     assert.equal((await s.post("/api/guest/prefill", { name: "nope" })).status, 404);
   } finally { await s.close(); }
+});
+
+// ---- logical split (R1 FUNCTIONAL_SPLIT), format read from a split made in the R1 GUI ----
+test("logical split: validation, build nodes, and the builder sends the conditions on each branch", async () => {
+  const { LOGIC_FIELDS, newCondition } = require("../src/model");
+  assert.equal(LOGIC_FIELDS[0][0], "CP_DEVICE_TYPE");
+  const inv = { networks: [{ id: "n1", name: "N" }], identityGroups: [{ id: "g1", name: "G" }], workflows: [], dpskPools: [], macPools: [], certTemplates: [], cas: [] };
+  const split = newNode("LOGICAL_SPLIT");
+  split.options[0].conditions = [{ variable: "CP_DEVICE_TYPE", operation: "EQUALS", value: "phone" }];
+  split.options[1].conditions = [{ variable: "CP_DEVICE_OS", operation: "EQUALS", value: "iOS" }];     // a name typed by the user
+  const pass = (id) => Object.assign(newNode("PASSPHRASE"), { params: { networkId: "n1", identityGroupId: "g1" }, id });
+  split.options[0].steps = [pass("p1")]; split.options[1].steps = [pass("p2")];
+  const wf = { name: "Logic", description: "", steps: [split] };
+  assert.deepEqual(validate(wf, inv).filter((i) => i.level === "error"), []);
+  // problems
+  const bad = JSON.parse(JSON.stringify(wf));
+  bad.steps[0].options[0].conditions = [];
+  bad.steps[0].options[1].conditions = [{ variable: "", operation: "NOPE", value: "" }];
+  const msgs = validate(bad, inv).map((i) => i.message).join(" | ");
+  assert.match(msgs, /needs at least one condition/); assert.match(msgs, /has no field/); assert.match(msgs, /unknown comparison/); assert.match(msgs, /no value/);
+  assert.ok(validate({ ...wf, steps: [{ ...split, options: [split.options[0]] }] }, inv).some((i) => i.level === "warn" && /single branch/.test(i.message)));
+
+  const bw = toBuildWorkflow(wf, inv);
+  assert.equal(bw.steps[0].r1.actionType, "FUNCTIONAL_SPLIT");
+  assert.deepEqual(bw.steps[0].options[0].r1.evaluationConditions, [{ sourceActionId: null, variableName: "CP_DEVICE_TYPE", operation: "EQUALS", evaluationRegex: "phone" }]);
+  assert.equal(bw.steps[0].options[0].r1.actionType, "FUNCTIONAL_SPLIT_OPTION");
+
+  const fake = fakeR1({}); const calls = fake.calls;
+  const b = new Builder({ api: makeApi({ client: fake.client, apply: true, log: () => {} }), crawl: { objects: {} }, mapping: {}, opts: { pollMs: 0 }, log: () => {} });
+  const r = await b.buildAll({ workflows: [bw] }, []);
+  assert.deepEqual(r.built, ["Logic"]);
+  const optActions = calls.filter((c) => c.method === "POST" && c.path === "/enrollmentActions" && c.body.actionType === "FUNCTIONAL_SPLIT_OPTION");
+  assert.equal(optActions.length, 2);
+  assert.equal(optActions[1].body.evaluationConditions[0].variableName, "CP_DEVICE_OS");
+  assert.ok(optActions[0].body.parentActionId, "each branch's action points at the split's action");
+  const step = calls.find((c) => c.body && c.body.firstSplitOption);
+  assert.equal(step.body.actionDefinitionId, "def-FUNCTIONAL_SPLIT");
+  assert.equal(step.body.type, "splitStepDto");
+  void newCondition;
+});
+
+test("logical split: a split made in the R1 GUI is imported with its conditions", async () => {
+  const { importWorkflow } = require("../src/r1import");
+  const steps = [{ id: "s0", type: "startStepDto", nextStepId: "s1" }, { id: "s1", type: "splitStepDto", actionType: "FUNCTIONAL_SPLIT", enrollmentActionId: "a1", label: "Logical Split 1" },
+    { id: "s2", type: "stepDto", actionType: "CAPTIVE_PORTAL", enrollmentActionId: "a3", nextStepId: "e1" }, { id: "e1", type: "endStepDto" }];
+  const actions = { a1: { id: "a1", actionType: "FUNCTIONAL_SPLIT" }, a2: { id: "a2", actionType: "FUNCTIONAL_SPLIT_OPTION", evaluationConditions: [{ sourceActionId: null, variableName: "CP_DEVICE_TYPE", operation: "EQUALS", evaluationRegex: "phone" }] }, a3: { id: "a3", actionType: "CAPTIVE_PORTAL", redirectUrl: "https://x.example" } };
+  const client = { async call(m, p) {
+    p = p.split("?")[0];
+    if (p === "/workflows/w") return { id: "w", name: "a test workflow", startStepId: "s0", status: "VALID" };
+    if (p === "/workflows/w/steps") return { content: steps };
+    if (p === "/workflows/w/steps/s1/splitOptions") return { content: [{ optionName: "Branch 1", enrollmentActionId: "a2", nextStepId: "s2" }] };
+    const a = p.match(/^\/enrollmentActions\/(\w+)$/); if (a) return actions[a[1]];
+    throw Object.assign(new Error("404"), { status: 404 });
+  } };
+  const { workflow, warnings } = await importWorkflow(client, "w");
+  assert.deepEqual(outline(workflow.steps), ["LOGICAL_SPLIT: Logical Split 1", '  option "Branch 1"', "    CAPTIVE_PORTAL: Captive portal redirect"]);
+  assert.deepEqual(workflow.steps[0].options[0].conditions, [{ variable: "CP_DEVICE_TYPE", operation: "EQUALS", value: "phone" }]);
+  assert.deepEqual(warnings, []);
+  actions.a2.evaluationConditions[0].sourceActionId = "form-1";
+  const again = await importWorkflow(client, "w");
+  assert.match(again.warnings[0], /earlier form step/);
+});
+
+test("Cloudpath look and feel: defaults carry nothing; titles and customized colors map to R1's look", () => {
+  const { lookFromCloudpath } = require("../src/model");
+  const base = { templateStyle: "Modern (Ruckus)", webBackgroundColor: "ECECEC", webLineColor: "FFFFFF", webButtonBackgroundColor: "4A4A4A", webButtonFontColor: "FFFFFF", webHeaderTopbarColor: "E57200", webHeaderStartOverColor: "FFFFFF", iconTextColor: "75787B", webHeaderRibbonColor: "000000" };
+  assert.equal(lookFromCloudpath(base, "W"), null, "all defaults: nothing to carry over");
+  assert.equal(lookFromCloudpath(null, "W"), null);
+  const t = lookFromCloudpath({ ...base, welcomeTitle1: "Welcome To", welcomeTitle2: "Sample Corporation" }, "W");
+  assert.deepEqual([t.look.welcomeTitle, t.look.welcomeName, t.notes], ["Welcome To", "Sample Corporation", []]);
+  const c = lookFromCloudpath({ ...base, webHeaderTopbarColor: "00a651", webButtonBackgroundColor: "112233" }, "My workflow");
+  assert.equal(c.look.colors.headerBarBackgroundColor, "#00A651");
+  assert.equal(c.look.colors.buttonColor, "#112233");
+  assert.equal(c.look.welcomeTitle, "My workflow", "R1 needs a title: the workflow name is used");
+  const n = lookFromCloudpath({ ...base, templateStyle: "Classic", htmlTemplateFile: "my.html", bannerImageFile: "logo.png", webAccordionButtonBackgroundColor: "FF0000" }, "W").notes.join(" | ");
+  assert.match(n, /"Classic" page style/); assert.match(n, /custom HTML template/); assert.match(n, /banner image \(logo.png\)/); assert.match(n, /no R1 equivalent/);
+});
+
+test("every enrollment action gets a unique name (R1 rejects a duplicate action name in the tenant)", async () => {
+  const mk = (name) => ({ name, description: "", steps: [newNode("AUP"), Object.assign(newNode("CERT_TEMPLATE"), { params: { mode: "existing", certTemplateId: "t1" } })] });
+  const fake = fakeR1();
+  const inv = { certTemplates: [{ id: "t1", name: "T", identityGroupId: "g" }] };
+  for (const n of ["One", "Two"]) {
+    const b = new Builder({ api: makeApi({ client: fake.client, apply: true, log: () => {} }), crawl: { objects: {} }, mapping: {}, opts: { pollMs: 0 }, log: () => {} });
+    await b.buildAll({ workflows: [toBuildWorkflow(mk(n), inv)] }, []);
+  }
+  const names = fake.calls.filter((c) => c.method === "POST" && c.path === "/enrollmentActions").map((c) => c.body.name);
+  assert.equal(names.length, 4);
+  assert.equal(new Set(names).size, 4, names.join(", "));
+  assert.ok(names.every((x) => x.length <= 100));
+  assert.match(names[0], /^Acceptable use policy-[0-9a-f]{6}$/);
+});
+
+test("import: a workflow with more than one page of steps is read completely", async () => {
+  const { importWorkflow } = require("../src/r1import");
+  // 13 steps in a chain: R1 returns 10 per page unless asked for more
+  const N = 12, steps = [{ id: "s0", type: "startStepDto", nextStepId: "s1" }];
+  for (let i = 1; i <= N; i++) steps.push({ id: "s" + i, type: "stepDto", actionType: "DISPLAY_MESSAGE", enrollmentActionId: "a", nextStepId: i < N ? "s" + (i + 1) : "e" });
+  steps.push({ id: "e", type: "endStepDto" });
+  const seen = [];
+  const client = { async call(m, p) {
+    seen.push(p);
+    if (p === "/workflows/w") return { id: "w", name: "Long", startStepId: "s0", status: "VALID" };
+    const q = p.match(/^\/workflows\/w\/steps\?page=(\d+)&size=(\d+)$/);
+    if (p === "/workflows/w/steps" || q) { const page = q ? Number(q[1]) : 0, size = q ? Number(q[2]) : 10; const content = steps.slice(page * size, page * size + size); return { content, paging: { totalCount: steps.length, page, pageSize: size, pageCount: Math.ceil(steps.length / size) } }; }
+    if (p === "/enrollmentActions/a") return { id: "a", actionType: "DISPLAY_MESSAGE", title: "t", messageHtml: "m" };
+    throw Object.assign(new Error("404"), { status: 404 });
+  } };
+  const { workflow } = await importWorkflow(client, "w");
+  assert.equal(workflow.steps.length, N, "all 12 steps copied, not just the first page of 10");
+  assert.ok(seen.some((p) => /size=100/.test(p)), "it asks for a big page");
+  // and if a server insisted on small pages, it still reads them all
+  const small = { async call(m, p) { const q = p.match(/^(\/workflows\/w\/steps)\?page=(\d+)&size=\d+$/); if (q) { const page = Number(q[2]), size = 5; return { content: steps.slice(page * size, page * size + size), paging: { totalCount: steps.length, page, pageSize: size, pageCount: Math.ceil(steps.length / size) } }; } return client.call(m, p); } };
+  assert.equal((await importWorkflow(small, "w")).workflow.steps.length, N);
 });

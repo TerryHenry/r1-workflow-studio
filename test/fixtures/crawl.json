@@ -33,7 +33,33 @@
       "networkSourceSelection.existingPk": "dempdpsk-config"
      }
     }
-   ]
+   ],
+   "look": {
+    "templateStyle": "Modern (Ruckus)",
+    "useHtmlTemplateFile": "1",
+    "webBackgroundColor": "ECECEC",
+    "webHeaderBackgroundColor": "FFFFFF",
+    "webHeaderStartOverColor": "FFFFFF",
+    "webHeaderPoweredByColor": "FFFFFF",
+    "webLineColor": "FFFFFF",
+    "webButtonBackgroundColor": "4A4A4A",
+    "webButtonFontColor": "FFFFFF",
+    "iconTextColor": "75787B",
+    "webHeaderTopbarTransparency": "0",
+    "webHeaderTopbarColor": "E57200",
+    "webHeaderRibbonTransparency": "0",
+    "webHeaderRibbonColor": "000000",
+    "useWebBackgroundImageFile": "1",
+    "webAccordionSelectedBackgroundColor": "75787B",
+    "webAccordionSelectedFontColor": "FFFFFF",
+    "webAccordionUnselectedBackgroundColor": "75787B",
+    "webAccordionUnselectedFontColor": "ECECEC",
+    "webAccordionButtonBackgroundColor": "75787B",
+    "webAccordionButtonHighlightColor": "AAAAAA",
+    "webAccordionButtonFontColor": "FFFFFF",
+    "appBackgroundColor": "607D8B",
+    "appFontTextColor": "White"
+   }
   },
   {
    "pk": 1896,
@@ -59,7 +85,33 @@
       "networkSourceSelection.existingPk": "dempdpsk-config"
      }
     }
-   ]
+   ],
+   "look": {
+    "templateStyle": "Modern (Ruckus)",
+    "useHtmlTemplateFile": "1",
+    "webBackgroundColor": "ECECEC",
+    "webHeaderBackgroundColor": "FFFFFF",
+    "webHeaderStartOverColor": "FFFFFF",
+    "webHeaderPoweredByColor": "FFFFFF",
+    "webLineColor": "FFFFFF",
+    "webButtonBackgroundColor": "4A4A4A",
+    "webButtonFontColor": "FFFFFF",
+    "iconTextColor": "75787B",
+    "webHeaderTopbarTransparency": "0",
+    "webHeaderTopbarColor": "E57200",
+    "webHeaderRibbonTransparency": "0",
+    "webHeaderRibbonColor": "000000",
+    "useWebBackgroundImageFile": "1",
+    "webAccordionSelectedBackgroundColor": "75787B",
+    "webAccordionSelectedFontColor": "FFFFFF",
+    "webAccordionUnselectedBackgroundColor": "75787B",
+    "webAccordionUnselectedFontColor": "ECECEC",
+    "webAccordionButtonBackgroundColor": "75787B",
+    "webAccordionButtonHighlightColor": "AAAAAA",
+    "webAccordionButtonFontColor": "FFFFFF",
+    "appBackgroundColor": "607D8B",
+    "appFontTextColor": "White"
+   }
   },
   {
    "pk": 2416,
@@ -297,7 +349,35 @@
       }
      ]
     }
-   ]
+   ],
+   "look": {
+    "templateStyle": "Modern (Ruckus)",
+    "useHtmlTemplateFile": "1",
+    "webBackgroundColor": "ECECEC",
+    "webHeaderBackgroundColor": "FFFFFF",
+    "webHeaderStartOverColor": "FFFFFF",
+    "webHeaderPoweredByColor": "FFFFFF",
+    "webLineColor": "FFFFFF",
+    "webButtonBackgroundColor": "4A4A4A",
+    "webButtonFontColor": "FFFFFF",
+    "iconTextColor": "75787B",
+    "webHeaderTopbarTransparency": "0",
+    "webHeaderTopbarColor": "E57200",
+    "webHeaderRibbonTransparency": "0",
+    "webHeaderRibbonColor": "000000",
+    "useWebBackgroundImageFile": "1",
+    "webAccordionSelectedBackgroundColor": "75787B",
+    "webAccordionSelectedFontColor": "FFFFFF",
+    "webAccordionUnselectedBackgroundColor": "75787B",
+    "webAccordionUnselectedFontColor": "ECECEC",
+    "webAccordionButtonBackgroundColor": "75787B",
+    "webAccordionButtonHighlightColor": "AAAAAA",
+    "webAccordionButtonFontColor": "FFFFFF",
+    "appBackgroundColor": "607D8B",
+    "appFontTextColor": "White",
+    "welcomeTitle1": "Welcome To",
+    "welcomeTitle2": "Sample Corporation"
+   }
   },
   {
    "pk": 1458,
@@ -412,7 +492,33 @@
       }
      ]
     }
-   ]
+   ],
+   "look": {
+    "templateStyle": "Modern (Ruckus)",
+    "useHtmlTemplateFile": "1",
+    "webBackgroundColor": "ECECEC",
+    "webHeaderBackgroundColor": "FFFFFF",
+    "webHeaderStartOverColor": "FFFFFF",
+    "webHeaderPoweredByColor": "FFFFFF",
+    "webLineColor": "FFFFFF",
+    "webButtonBackgroundColor": "4A4A4A",
+    "webButtonFontColor": "FFFFFF",
+    "iconTextColor": "75787B",
+    "webHeaderTopbarTransparency": "0",
+    "webHeaderTopbarColor": "E57200",
+    "webHeaderRibbonTransparency": "0",
+    "webHeaderRibbonColor": "000000",
+    "useWebBackgroundImageFile": "1",
+    "webAccordionSelectedBackgroundColor": "75787B",
+    "webAccordionSelectedFontColor": "FFFFFF",
+    "webAccordionUnselectedBackgroundColor": "75787B",
+    "webAccordionUnselectedFontColor": "ECECEC",
+    "webAccordionButtonBackgroundColor": "75787B",
+    "webAccordionButtonHighlightColor": "AAAAAA",
+    "webAccordionButtonFontColor": "FFFFFF",
+    "appBackgroundColor": "607D8B",
+    "appFontTextColor": "White"
+   }
   },
   {
    "pk": 1891,
@@ -460,7 +566,33 @@
       "networkSourceSelection.existingPk": "example-device-100"
      }
     }
-   ]
+   ],
+   "look": {
+    "templateStyle": "Modern (Ruckus)",
+    "useHtmlTemplateFile": "1",
+    "webBackgroundColor": "ECECEC",
+    "webHeaderBackgroundColor": "FFFFFF",
+    "webHeaderStartOverColor": "FFFFFF",
+    "webHeaderPoweredByColor": "FFFFFF",
+    "webLineColor": "FFFFFF",
+    "webButtonBackgroundColor": "4A4A4A",
+    "webButtonFontColor": "FFFFFF",
+    "iconTextColor": "75787B",
+    "webHeaderTopbarTransparency": "0",
+    "webHeaderTopbarColor": "E57200",
+    "webHeaderRibbonTransparency": "0",
+    "webHeaderRibbonColor": "000000",
+    "useWebBackgroundImageFile": "1",
+    "webAccordionSelectedBackgroundColor": "75787B",
+    "webAccordionSelectedFontColor": "FFFFFF",
+    "webAccordionUnselectedBackgroundColor": "75787B",
+    "webAccordionUnselectedFontColor": "ECECEC",
+    "webAccordionButtonBackgroundColor": "75787B",
+    "webAccordionButtonHighlightColor": "AAAAAA",
+    "webAccordionButtonFontColor": "FFFFFF",
+    "appBackgroundColor": "607D8B",
+    "appFontTextColor": "White"
+   }
   },
   {
    "pk": 1557,
@@ -698,7 +830,35 @@
       }
      ]
     }
-   ]
+   ],
+   "look": {
+    "templateStyle": "Modern (Ruckus)",
+    "useHtmlTemplateFile": "1",
+    "webBackgroundColor": "ECECEC",
+    "webHeaderBackgroundColor": "FFFFFF",
+    "webHeaderStartOverColor": "FFFFFF",
+    "webHeaderPoweredByColor": "FFFFFF",
+    "webLineColor": "FFFFFF",
+    "webButtonBackgroundColor": "4A4A4A",
+    "webButtonFontColor": "FFFFFF",
+    "iconTextColor": "75787B",
+    "webHeaderTopbarTransparency": "0",
+    "webHeaderTopbarColor": "E57200",
+    "webHeaderRibbonTransparency": "0",
+    "webHeaderRibbonColor": "000000",
+    "useWebBackgroundImageFile": "1",
+    "webAccordionSelectedBackgroundColor": "75787B",
+    "webAccordionSelectedFontColor": "FFFFFF",
+    "webAccordionUnselectedBackgroundColor": "75787B",
+    "webAccordionUnselectedFontColor": "ECECEC",
+    "webAccordionButtonBackgroundColor": "75787B",
+    "webAccordionButtonHighlightColor": "AAAAAA",
+    "webAccordionButtonFontColor": "FFFFFF",
+    "appBackgroundColor": "607D8B",
+    "appFontTextColor": "White",
+    "welcomeTitle1": "Welcome To",
+    "welcomeTitle2": "Sample Corporation"
+   }
   }
  ],
  "objects": {

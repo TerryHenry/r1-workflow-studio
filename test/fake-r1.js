@@ -14,7 +14,7 @@ function fakeR1({ failOn, existing = {} } = {}) {
       if (method === "POST" && p.startsWith("/certificateAuthorities/query")) return { data: existing.cas || [] };
       if (method === "POST" && p.startsWith("/venues/query")) return { data: existing.venues || [] };
       if (method === "POST" && p.startsWith("/certificateTemplates/query")) return { data: existing.tpls || [] };
-      if (method === "POST" && p.startsWith("/workflowActionDefinitions/query")) return { data: ["AUP", "DPSK", "MAC_REG", "USER_SELECTION_SPLIT", "CERT_TEMPLATE", "PASSPHRASE"].map((t) => ({ actionType: t, id: "def-" + t })) };
+      if (method === "POST" && p.startsWith("/workflowActionDefinitions/query")) return { data: ["AUP", "DPSK", "MAC_REG", "USER_SELECTION_SPLIT", "FUNCTIONAL_SPLIT", "CERT_TEMPLATE", "PASSPHRASE"].map((t) => ({ actionType: t, id: "def-" + t })) };
       if (method === "GET" && /^\/workflows\/[^/]+$/.test(p)) { if (calls.filter((c) => c.path === p && c.method === "GET").length < 3) { const e = new Error("404"); e.status = 404; throw e; } return { startStepId: "start-1" }; }
       if (method === "GET" && /^\/enrollmentActions\/[^/]+$/.test(p)) return { id: p.split("/").pop() };
       if (method === "GET" && /\/splitOptions$/.test(p)) return { content: (store.options[p.split("/")[4]] || []) };
