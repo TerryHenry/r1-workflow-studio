@@ -593,3 +593,40 @@ test("logical split comparisons: all eight R1 operators are offered and evaluate
   const n = newNode("LOGICAL_SPLIT"); n.options[0].conditions = [{ variable: "V", operation: "MATCHES", value: "x" }];
   assert.ok(validate({ name: "N", steps: [n] }, {}).some((i) => /unknown comparison/.test(i.message)));
 });
+
+// ---- Cloudpath split rules -> R1 logical-split conditions ----
+test("Cloudpath rules: regexes become R1 comparisons where they can, and are explained where they can't", () => {
+  const { regexToComparison, ruleToConditions, LOGIC_FIELDS } = require("../src/model");
+  assert.deepEqual(LOGIC_FIELDS.map((f) => f[0]).sort(), ["CP_AP_GROUP_NAME", "CP_BROWSER_NAME", "CP_DEVICE_IP", "CP_DEVICE_MAC", "CP_DEVICE_OS", "CP_DEVICE_TYPE", "CP_LANGUAGE", "CP_PORTAL_SSID", "CP_VENUE_NAME"]);
+  const cases = [["iOS", false, "EQUALS", "iOS"], ["iOS", true, "DOES_NOT_EQUAL", "iOS"], [".*Android.*", false, "CONTAINS", "Android"], [".*Android.*", true, "DOES_NOT_CONTAIN", "Android"],
+    ["Mac.*", false, "STARTS_WITH", "Mac"], [".*Linux", false, "ENDS_WITH", "Linux"], ["^en$", false, "EQUALS", "en"]];
+  for (const [rx, neg, op, val] of cases) assert.deepEqual(regexToComparison(rx, neg), { operation: op, value: val }, rx);
+  for (const [rx, neg] of [["iOS|Mac OS", false], ["Mac.*", true], ["[a-z]+", false], ["", false]]) assert.equal(regexToComparison(rx, neg), null, rx);
+
+  const r = ruleToConditions({ "workflowFilter.operatingSystemRegex": ".*Android.*", "workflowFilter.languageRegex": "en", "workflowFilter.languageRegexOperator": "Does Not Match",
+    "workflowFilter.userAgentRegex": "Chrome.*", "workflowFilter.macRegistrationRegex": "Premium List.*", "workflowFilter.emailRegex": ".*@x.com", "workflowFilter.operatingSystemRegexOperator": "Matches", name: "Branch" });
+  assert.deepEqual(r.conditions, [{ variable: "CP_DEVICE_OS", operation: "CONTAINS", value: "Android" }, { variable: "CP_LANGUAGE", operation: "DOES_NOT_EQUAL", value: "en" }, { variable: "CP_BROWSER_NAME", operation: "STARTS_WITH", value: "Chrome" }]);
+  assert.equal(r.notes.length, 3);
+  assert.ok(r.notes.some((n) => /MAC registration list .* no field in R1/.test(n)));
+  assert.ok(r.notes.some((n) => /email address/.test(n)));
+  assert.ok(r.notes.some((n) => /browser name only/.test(n)));
+  assert.match(ruleToConditions({ "workflowFilter.languageRegex": "en|fr" }).notes[0], /can't express/);
+  assert.deepEqual(ruleToConditions({}).conditions, []);
+});
+
+test("Cloudpath rule-based splits open in the editor as logical splits with their convertible conditions", () => {
+  const { convertAll } = require("../src/convert");
+  const cp = { source: "x", cloudpathVersion: "6", workflows: [{ pk: 1, name: "Rules", portalUrl: "", published: true, steps: [
+    { kind: "selection", number: "Step 1:", label: "First match in: A B", fields: { name: "Pick", matchBehavior: { text: "Use Only First Option That Matches" } }, matchBehavior: "Use Only First Option That Matches", options: [
+      { name: "Apple", criteria: "This option will only be available to enrollments matching all of the following criteria:\nOperating System = iOS.*", fields: { name: "Apple", "workflowFilter.operatingSystemRegex": "iOS.*" },
+        steps: [{ kind: "registration", number: "Step 2:", label: "r", fields: { name: "List A" } }] },
+      { name: "Anything else", criteria: "No previous option matches.", fields: { name: "Else" }, steps: [{ kind: "registration", number: "Step 2:", label: "r", fields: { name: "List B" } }] }] }] }] };
+  const inv = { dpskPools: [], macPools: [], certTemplates: [], cas: [], networks: [], workflows: [] };
+  const wf = require("../src/model").fromPlan(convertAll(cp, {}).workflows[0], inv, {});
+  const split = wf.steps[0];
+  assert.equal(split.type, "LOGICAL_SPLIT");
+  assert.deepEqual(split.options[0].conditions, [{ variable: "CP_DEVICE_OS", operation: "STARTS_WITH", value: "iOS" }]);
+  assert.deepEqual(split.options[1].conditions, [], "an 'otherwise' branch has no condition: the editor flags it for a decision");
+  assert.match(split.source.notes[0], /rules/);
+  assert.ok(validate(wf, inv).some((i) => /needs at least one condition/.test(i.message) && /Anything else|Pick/.test(i.message)));
+});

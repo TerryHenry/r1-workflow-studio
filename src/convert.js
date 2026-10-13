@@ -175,7 +175,7 @@ function convertSteps(steps, ctx) {
       needs: r.needs || [], notes: r.notes || [], r1: r.action, ref: r.ref };
     if (r.end) node.end = true;
     if (s.options) {
-      node.options = s.options.map((o) => ({
+      node.options = s.options.map((o) => ({ fields: o.fields,
         name: o.name, criteria: (o.criteria || "").replace(/^.*criteria:\s*/s, "").replace(/\s+/g, " ").trim(),
         r1: { actionType: r.split === "FUNCTIONAL" ? "FUNCTIONAL_SPLIT_OPTION" : "USER_SELECTION_SPLIT_OPTION", name: trunc(val(o.fields, "name") || o.name, 100),
           messageHtml: optionText(o) },

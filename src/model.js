@@ -134,6 +134,46 @@ function lookParts(look) {
   return parts;
 }
 
+// ---- Cloudpath split rules -> R1 logical-split conditions --------------------------------------------------------------
+// A Cloudpath split option can carry filters ("workflowFilter.<name>Regex" with an "...Operator" of Matches / Does Not Match).
+// R1 has no regular expressions: only equals / contains / starts with / ends with (and negations of equals / contains).
+const RULE_FIELDS = {
+  operatingSystem: { variable: "CP_DEVICE_OS", label: "operating system" },
+  userAgent: { variable: "CP_BROWSER_NAME", label: "browser (user agent)", approx: "Cloudpath tests the whole user-agent text; R1's field is the browser name only." },
+  language: { variable: "CP_LANGUAGE", label: "language" },
+};
+const RULE_LABELS = { groupName: "user group", username: "user name", userDn: "directory path", email: "email address", macRegistration: "MAC registration list", dhcpDeviceSummary: "DHCP device summary",
+  location: "location", existingCommonName: "existing certificate name", existingIssuerCommonName: "existing certificate issuer", existingTemplateName: "existing certificate template", voucherList: "voucher list" };
+const PLAIN = "[\\w .:@/-]*";
+// One regex -> { operation, value } or null when R1's comparisons can't say the same thing.
+function regexToComparison(regex, negate) {
+  const r = String(regex || "").trim().replace(/^\^/, "").replace(/\$$/, "");
+  const anchoredBoth = new RegExp("^" + PLAIN + "$"), contains = new RegExp("^\\.\\*(" + PLAIN + ")\\.\\*$"), starts = new RegExp("^(" + PLAIN + ")\\.\\*$"), ends = new RegExp("^\\.\\*(" + PLAIN + ")$");
+  let m;
+  if (!r) return null;
+  if (anchoredBoth.test(r)) return { operation: negate ? "DOES_NOT_EQUAL" : "EQUALS", value: r };
+  if ((m = r.match(contains))) return { operation: negate ? "DOES_NOT_CONTAIN" : "CONTAINS", value: m[1] };
+  if (negate) return null;                                             // R1 has no "does not start / end with"
+  if ((m = r.match(starts))) return { operation: "STARTS_WITH", value: m[1] };
+  if ((m = r.match(ends))) return { operation: "ENDS_WITH", value: m[1] };
+  return null;
+}
+// fields: a Cloudpath split option's form fields. Returns { conditions, notes }.
+function ruleToConditions(fields) {
+  const conditions = [], notes = [];
+  for (const [k, v] of Object.entries(fields || {})) {
+    const m = k.match(/^workflowFilter\.(\w+?)Regex$/); if (!m || v == null || typeof v === "object" || String(v) === "") continue;
+    const name = m[1], regex = String(v), negate = /not/i.test(String((fields || {})[`workflowFilter.${name}RegexOperator`] || ""));
+    const target = RULE_FIELDS[name];
+    if (!target) { notes.push(`Cloudpath rule on the ${RULE_LABELS[name] || name} (${negate ? "does not match" : "matches"} "${regex}") has no field in R1's logical split, so it isn't carried over.`); continue; }
+    const cmp = regexToComparison(regex, negate);
+    if (!cmp) { notes.push(`Cloudpath rule on the ${target.label} uses the pattern "${regex}", which R1's comparisons (equals, contains, starts with, ends with) can't express. Set the branch by hand.`); continue; }
+    conditions.push({ variable: target.variable, operation: cmp.operation, value: cmp.value });
+    if (target.approx) notes.push(target.approx);
+  }
+  return { conditions, notes };
+}
+
 // Cloudpath "Look & Feel" form fields -> an R1 look, or null when it is all Cloudpath defaults with no titles (nothing to carry over).
 // Returns { look, notes } | null. R1's portal look is narrower than Cloudpath's HTML templates: what can't be carried over is listed in notes.
 function lookFromCloudpath(cp, workflowName) {
@@ -227,8 +267,11 @@ function guestFromPlan(cpWf) {
 
 // Logical split conditions (R1 "Logical Split"; API action FUNCTIONAL_SPLIT). Read from a split made in the R1 GUI (workflow "a test workflow"):
 // each branch is an option whose action holds evaluationConditions [{ sourceActionId, variableName, operation, evaluationRegex }].
-// Only the variable names seen in that sample are listed (R1 does not validate them, so they can't be probed); any other can be typed in the editor.
-const LOGIC_FIELDS = [["CP_DEVICE_TYPE", "Device type"]];
+// (R1 itself does not validate variable names, so any other name can still be typed in the editor.)
+// Variable names and labels read from the R1 GUI's Logical Split dialog (workflow a test workflow, 2026-10-13). The dialog also offers the fields of
+// an earlier form step ("Display a Form"); how those are stored isn't known here, so they are not offered.
+const LOGIC_FIELDS = [["CP_DEVICE_TYPE", "Device type"], ["CP_DEVICE_OS", "Device OS"], ["CP_BROWSER_NAME", "Browser name"], ["CP_LANGUAGE", "Language"], ["CP_PORTAL_SSID", "Captive portal SSID"],
+  ["CP_VENUE_NAME", "Venue name"], ["CP_AP_GROUP_NAME", "AP group"], ["CP_DEVICE_MAC", "Device MAC address"], ["CP_DEVICE_IP", "Device IP address"]];
 // Comparisons R1 accepts (from R1's own error message for an unknown one, 2026-10-13). "IS" / "IS_NOT" sit beside EQUALS /
 // DOES_NOT_EQUAL; how R1 tells them apart isn't documented, so both are offered.
 const LOGIC_OPS = [["EQUALS", "equals"], ["DOES_NOT_EQUAL", "does not equal"], ["IS", "is"], ["IS_NOT", "is not"], ["CONTAINS", "contains"], ["DOES_NOT_CONTAIN", "does not contain"], ["STARTS_WITH", "starts with"], ["ENDS_WITH", "ends with"]];
@@ -291,10 +334,13 @@ function fromPlan(planWf, inv, objects) {
           Object.assign(node.params, { mode: "new", newName: n.ref.template, caId: ca ? ca.id : "", commonNamePattern: i.cnPattern || "$(USERNAME)",
             validityType: (i.validity || {}).type || "YEARS", validityValue: (i.validity || {}).value || 1, organization: i.organization, locality: i.locality, state: i.state, country: i.country });
         }
-      } else if (t === "USER_SELECTION_SPLIT" || t === "FUNCTIONAL_SPLIT") {
+      } else if (t === "FUNCTIONAL_SPLIT") {
+        node = newNode("LOGICAL_SPLIT", n.r1.name); node.options = [];
+        src.notes = ["Cloudpath chose the branch by rules. R1's logical split does the same by device fields; rules R1 can't express are listed under each branch, which then needs conditions set by hand." +
+          (/All/i.test(n.matchBehavior || "") ? " Cloudpath used every matching branch; R1 takes the first matching one." : "")];
+      } else if (t === "USER_SELECTION_SPLIT") {
         node = newNode("USER_SELECTION_SPLIT", n.r1.name);
         node.params.title = "Choose one"; node.options = [];
-        if (t === "FUNCTIONAL_SPLIT") src.notes = ["Cloudpath chose the branch by rules; here the visitor chooses. Rules were: " + (n.notes || []).join(" ")];
       } else if (t === "PASSPHRASE") {
         node = newNode("PASSPHRASE", n.r1.name);
         const net = find(inv.networks, n.ref && n.ref.network);
@@ -302,7 +348,12 @@ function fromPlan(planWf, inv, objects) {
       } else continue;
       node.source = src;
       if (n.options) {
-        node.options = n.options.map((o) => ({ id: uid("o"), name: o.name.replace(/\.{3}$/, ""), text: (o.r1 && o.r1.messageHtml) || "", steps: convert(o.steps), criteria: o.criteria }));
+        node.options = n.options.map((o) => {
+          const base = { id: uid("o"), name: o.name.replace(/\.{3}$/, ""), text: (o.r1 && o.r1.messageHtml) || "", steps: convert(o.steps), criteria: o.criteria };
+          if (t !== "FUNCTIONAL_SPLIT") return base;
+          const rc = ruleToConditions(o.fields);
+          return { ...base, conditions: rc.conditions, criteria: [o.criteria, ...rc.notes].filter(Boolean).join(" ") };
+        });
       }
       out.push(node);
     }
@@ -517,4 +568,4 @@ function sniffImage(buf) {
   if (head.startsWith("<svg") || (head.startsWith("<?xml") && head.includes("<svg"))) return "image/svg+xml";
   return null;
 }
-module.exports = { lookFromCloudpath, LOGIC_FIELDS, LOGIC_OPS, newCondition, guestFromPlan, sniffImage, LOOK_COLORS, DEFAULT_LOOK, validateLook, lookParts, GUEST_FIELDS, GUEST_TYPES, blankGuestNetwork, validateGuestNetwork, guestNetworkBody, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, createMissing, ACTIONS, PLACEHOLDER, ONBOARD, newNode, newOption, blankWorkflow, fromPlan, validate, toBuildWorkflow, toBuildNodes, outline, everyBranchOnboards, visible, uid };
+module.exports = { ruleToConditions, regexToComparison, lookFromCloudpath, LOGIC_FIELDS, LOGIC_OPS, newCondition, guestFromPlan, sniffImage, LOOK_COLORS, DEFAULT_LOOK, validateLook, lookParts, GUEST_FIELDS, GUEST_TYPES, blankGuestNetwork, validateGuestNetwork, guestNetworkBody, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, createMissing, ACTIONS, PLACEHOLDER, ONBOARD, newNode, newOption, blankWorkflow, fromPlan, validate, toBuildWorkflow, toBuildNodes, outline, everyBranchOnboards, visible, uid };

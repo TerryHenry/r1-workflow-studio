@@ -169,10 +169,18 @@ Live results (2026-10-13, your tenant):
   `GET /workflows/{id}/uiConfigurations/{logo|background|icon}` as a signed link, served as a generic octet-stream.
 - Confirmed (logical split, read from a split made in the R1 GUI, workflow `a test workflow`): R1's "Logical Split" is the `FUNCTIONAL_SPLIT`
   step; each branch is an option whose action carries `evaluationConditions: [{ sourceActionId, variableName, operation, evaluationRegex }]`
-  (seen: `CP_DEVICE_TYPE` `EQUALS` `phone`). R1 accepts exactly eight comparisons (it lists them when given a wrong one): EQUALS, DOES_NOT_EQUAL, IS, IS_NOT, CONTAINS, DOES_NOT_CONTAIN, STARTS_WITH, ENDS_WITH; it does not check variable names. The editor has a **Logical split** step with branches and conditions, imports existing ones,
-  and built a nested split live. Only the Device-type variable name and the `EQUALS` operator are known: any other variable name can be
-  typed in the editor, and the other GUI fields (Device OS, Language, Browser Name, Captive Portal SSID, Device MAC / IP address) and
-  evaluators need a sample that uses them. A condition on an earlier form field (`sourceActionId`) is kept by name only.
+  (seen: `CP_DEVICE_TYPE` `EQUALS` `phone`). R1 accepts exactly eight comparisons (it lists them when given a wrong one): EQUALS, DOES_NOT_EQUAL, IS,
+  IS_NOT, CONTAINS, DOES_NOT_CONTAIN, STARTS_WITH, ENDS_WITH; it does not check variable names. The editor has a **Logical split** step with branches and
+  conditions, imports existing ones, and built a nested split live.
+  Field names, read from the R1 GUI's Logical Split dialog: Device type `CP_DEVICE_TYPE`, Device OS `CP_DEVICE_OS`, Browser name `CP_BROWSER_NAME`,
+  Language `CP_LANGUAGE`, Captive portal SSID `CP_PORTAL_SSID`, Venue name `CP_VENUE_NAME`, AP group `CP_AP_GROUP_NAME`, Device MAC address
+  `CP_DEVICE_MAC`, Device IP address `CP_DEVICE_IP`. The dialog also offers the fields of an earlier form step (e.g. "Username"); how those are stored
+  isn't known, so a condition on one (`sourceActionId`) is kept by name only when importing.
+- Cloudpath split rules are converted to those conditions where R1 can express them: operating system -> Device OS, user agent -> Browser name
+  (approximate), language -> Language; a regex becomes equals / contains / starts with / ends with (or the negation of equals / contains); anything
+  else (MAC registration lists, user group, email, certificates, vouchers, alternation patterns...) is left as a note on the branch, which then needs
+  conditions set by hand. An "otherwise" branch has no condition; R1 has no "else", so the editor flags it. In the training instance every
+  rule tests a MAC registration list, so none converted automatically.
 - Confirmed (builder rules learned live): R1 allows **no two enrollment actions with the same name in the tenant** (every action gets a
   short unique suffix); step labels are at most 32 characters; R1 lists return **10 per page** (the importer pages through all of them).
 - Cloudpath look and feel is read by the crawler (each workflow's Look & Feel tab) and converted: titles and any customized colors map to
