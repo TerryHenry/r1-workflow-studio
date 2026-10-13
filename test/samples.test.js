@@ -24,7 +24,8 @@ test("samples: every path can be walked in Try it", () => {
       return st;
     };
     if (s.id === "by-device") {
-      for (const t of ["phone", "tablet", "laptop"]) assert.ok(walk({ CP_DEVICE_TYPE: t }, []).trail.some((n) => /DPSK|CERT/.test(n.type)), t);
+      assert.ok(walk({ CP_DEVICE_TYPE: "Desktop" }, []).trail.some((n) => n.type === "CERT_TEMPLATE"));
+      assert.ok(walk({ CP_DEVICE_TYPE: "Mobile" }, []).trail.some((n) => n.type === "DPSK"));
     } else {
       for (let c = 0; c < 2 + (s.id === "school" ? 1 : 0); c++) assert.ok(walk({}, [c]).trail.some((n) => n.type === "DPSK"), s.id + " " + c);
     }

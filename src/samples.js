@@ -54,13 +54,14 @@ function byDevice() {
     "Choose the certificate authority that should issue these certificates.");
   return {
     name: "Phones and tablets vs laptops",
-    description: "A logical split: R1 looks at the visitor's device and decides the path automatically. Phones and tablets get a passphrase; laptops get a certificate.",
+    description: "A logical split: R1 looks at the visitor's device and decides the path automatically. Computers (device type contains Desktop) get a certificate; everything else gets a passphrase.",
     steps: [
       node("AUP", "Network policy", { title: "Welcome", messageHtml: "Please accept the network policy to continue." }),
       node("LOGICAL_SPLIT", "Device check", {}, { options: [
-        { ...opt("Phone", "", [dpsk("Phone passphrase", "Phone and tablet devices", "Corp-Mobile", { deviceCountLimit: 2 })], [{ variable: "CP_DEVICE_TYPE", operation: "EQUALS", value: "phone" }]) },
-        { ...opt("Tablet", "", [dpsk("Tablet passphrase", "Phone and tablet devices", "Corp-Mobile")], [{ variable: "CP_DEVICE_TYPE", operation: "EQUALS", value: "tablet" }]) },
-        { ...opt("Laptop", "", [cert], [{ variable: "CP_DEVICE_TYPE", operation: "EQUALS", value: "laptop" }]) },
+        // Confirmed on a real device (2026-10-13): a MacBook reports a device type containing "Desktop". What phones report is not known yet,
+        // so the other branch is "does not contain Desktop" rather than a guessed word.
+        { ...opt("Computer", "", [cert], [{ variable: "CP_DEVICE_TYPE", operation: "CONTAINS", value: "Desktop" }]) },
+        { ...opt("Phone or tablet", "", [dpsk("Mobile passphrase", "Phone and tablet devices", "Corp-Mobile", { deviceCountLimit: 2 })], [{ variable: "CP_DEVICE_TYPE", operation: "DOES_NOT_CONTAIN", value: "Desktop" }]) },
       ] }),
     ],
   };
