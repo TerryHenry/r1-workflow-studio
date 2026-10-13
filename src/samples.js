@@ -53,7 +53,7 @@ function byDevice() {
   const cert = note(node("CERT_TEMPLATE", "Laptop certificate", { mode: "new", newName: "Laptop certificate", commonNamePattern: "$(USERNAME)@example.com", validityType: "YEARS", validityValue: 1, caId: "" }),
     "Choose the certificate authority that should issue these certificates.");
   return {
-    name: "Phones and tablets vs laptops",
+    name: "Computers vs phones and tablets",
     description: "A logical split: R1 looks at the visitor's device and decides the path automatically. Computers (device type contains Desktop) get a certificate; everything else gets a passphrase.",
     steps: [
       node("AUP", "Network policy", { title: "Welcome", messageHtml: "Please accept the network policy to continue." }),
@@ -72,7 +72,7 @@ function samples() {
   return [
     { id: "school", name: "School: student / teacher / guest", blurb: "A choice at the start. Students and teachers sign in with LDAP and get their own DPSK pools; guests give details and get a one-day passphrase. Includes a custom look.", workflow: school() },
     { id: "employee-guest", name: "Employee (LDAP) or guest (DPSK)", blurb: "Employees sign in with the directory and get a staff passphrase. Guests accept terms, give an email and get a one-day passphrase.", workflow: employeeGuest() },
-    { id: "by-device", name: "Phones and tablets vs laptops", blurb: "A logical split by device type: phones and tablets get a passphrase, laptops get a certificate. Try it with different device types.", workflow: byDevice() },
+    { id: "by-device", name: "Computers vs phones and tablets", blurb: "A logical split by device type: computers (device type contains Desktop, confirmed on a MacBook) get a certificate, everything else gets a passphrase.", workflow: byDevice() },
   ].map((s) => ({ ...s, workflow: { ...s.workflow, source: { sample: s.id, sampleNote: s.blurb } } }));
 }
 

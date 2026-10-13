@@ -65,7 +65,7 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
 - Safety: listens on 127.0.0.1 only, rejects other Host headers, POSTs need the page's token, and certificate authority
   private keys are never read into the page. `--offline` previews without a RUCKUS One connection (apply is disabled).
 - **Samples** (left list): three ready-made workflows to look at, click through with Try it, and edit: school student / teacher / guest
-  (LDAP sign-in, a DPSK pool each, one-day guest passphrase, custom look), employee (LDAP) or guest (DPSK), and phones/tablets vs
+  (LDAP sign-in, a DPSK pool each, one-day guest passphrase, custom look), employee (LDAP) or guest (DPSK), and computers vs phones/tablets (logical split)
   laptops (logical split by device type). They open as editable copies. Only an LDAP directory profile id and a certificate authority
   are left for you to fill in. Defined in `src/samples.js`.
 
@@ -173,7 +173,7 @@ Live results (2026-10-13, your tenant):
   `GET /workflows/{id}/uiConfigurations/{logo|background|icon}` as a signed link, served as a generic octet-stream.
 - Confirmed (logical split, read from a split made in the R1 GUI, workflow `a test workflow`): R1's "Logical Split" is the `FUNCTIONAL_SPLIT`
   step; each branch is an option whose action carries `evaluationConditions: [{ sourceActionId, variableName, operation, evaluationRegex }]`
-  (seen: `CP_DEVICE_TYPE` `EQUALS` `phone`). R1 accepts exactly eight comparisons (it lists them when given a wrong one): EQUALS, DOES_NOT_EQUAL, IS,
+  (values confirmed on real devices through the published workflow URL, 2026-10-13: a MacBook gave `CP_DEVICE_TYPE` containing `Desktop`; an iPhone gave `CP_DEVICE_OS` containing `iOS`. R1's Preview does NOT evaluate splits (it shows every branch as a button). Browser name and what phones report as device type are not confirmed). R1 accepts exactly eight comparisons (it lists them when given a wrong one): EQUALS, DOES_NOT_EQUAL, IS,
   IS_NOT, CONTAINS, DOES_NOT_CONTAIN, STARTS_WITH, ENDS_WITH; it does not check variable names. The editor has a **Logical split** step with branches and
   conditions, imports existing ones, and built a nested split live.
   Field names, read from the R1 GUI's Logical Split dialog: Device type `CP_DEVICE_TYPE`, Device OS `CP_DEVICE_OS`, Browser name `CP_BROWSER_NAME`,
