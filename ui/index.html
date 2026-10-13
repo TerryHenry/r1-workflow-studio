@@ -71,9 +71,14 @@ body.noleft #left { display: none; } body.noleft main { grid-template-columns: m
 .card .n input { font-weight: 600; padding: 1px 4px; }
 .card .s { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .card .badge { position: absolute; top: 6px; right: 8px; font-size: 11px; font-weight: 700; color: var(--bad); }
-.branches { display: flex; gap: 22px; align-items: flex-start; padding-top: 14px; border-top: 2px solid var(--line); }
-.branch { display: flex; flex-direction: column; align-items: center; min-width: var(--cardw); }
-.branch .bh { border: 1px solid var(--split); color: var(--split); background: var(--panel); border-radius: 99px; padding: 2px 12px; font-weight: 600; font-size: 12px; max-width: var(--cardw); text-align: center; cursor: pointer; margin-top: -26px; }
+.branches { display: flex; align-items: flex-start; gap: 0; }
+/* tree connectors: each branch draws its half of the bar above it (none on the outer ends) and a stem down to its label */
+.branch { display: flex; flex-direction: column; align-items: center; min-width: var(--cardw); position: relative; padding: 24px 14px 0; }
+.branch::before, .branch::after { content: ""; position: absolute; top: 0; width: 50%; border-top: 2px solid var(--line); }
+.branch::before { left: 0; } .branch::after { right: 0; }
+.branch:first-child::before, .branch:last-child::after { border-top-color: transparent; }
+.branch .stem { position: absolute; top: 0; left: 50%; height: 24px; border-left: 2px solid var(--line); transform: translateX(-1px); }
+.branch .bh { border: 1px solid var(--split); color: var(--split); background: var(--panel); border-radius: 99px; padding: 2px 12px; font-weight: 600; font-size: 12px; max-width: var(--cardw); text-align: center; cursor: pointer; margin-top: 0; position: relative; z-index: 1; }
 .empty { color: var(--muted); font-size: 12px; font-style: italic; }
 #right { background: var(--panel); border-left: 1px solid var(--line); overflow: hidden; display: grid; grid-template-rows: auto 1fr; position: relative; min-width: 0; }
 #rsz { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; }
@@ -357,7 +362,7 @@ function inlineRename(n, el) {
   el.replaceChildren(input); input.focus(); input.select();
 }
 function branches(n) {
-  return h("div", { class: "branches" }, (n.options || []).map((o) => h("div", { class: "branch" },
+  return h("div", { class: "branches" }, (n.options || []).map((o) => h("div", { class: "branch" }, h("div", { class: "stem" }),
     h("button", { class: "bh", title: o.conditions ? o.conditions.map(condText).join(" and ") : (o.text || "Click to edit the options"), onclick: () => select(n.id) }, o.name || "(unnamed)"),
     steps(o.steps), ...endCap(o.steps))));
 }
