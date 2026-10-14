@@ -95,7 +95,7 @@ function validateTemplate(t, inv = {}, opts = {}) {
   }
   if (t.caId && (inv.cas || []).length && !inv.cas.some((c) => c.id === t.caId)) add("The chosen certificate authority no longer exists in R1.");
   const full = (opts.prefix || "") + (t.name || "");
-  if ((inv.certTemplates || []).some((x) => lc(x.name) === lc(full))) add(`A certificate template named "${full}" already exists in R1. Rename this one.`);
+  if ((inv.certTemplates || []).some((x) => lc(x.name) === lc(full))) { add(`A certificate template named "${full}" already exists in R1. Rename this one.`); Object.assign(issues[issues.length - 1], { fix: "rename", suggest: freeName(t.name, (inv.certTemplates || []).map((x) => x.name), opts.prefix || "") }); }
   return issues;
 }
 // The builder's description of a template to create.
@@ -228,7 +228,7 @@ function validateGuestNetwork(g, inv = {}, opts = {}) {
     if (!(g.hostDurationChoices || []).length || (g.hostDurationChoices || []).some((x) => !(Number(x) > 0))) add("Host approval needs the hours a host can approve (whole numbers, one per line).");
   }
   const full = (opts.prefix || "") + (g.name || ""), ssid = String(g.ssid || "");
-  if ((inv.networks || []).some((n) => lc(n.name) === lc(full))) add(`A Wi-Fi network named "${full}" already exists in R1. Rename this one.`);
+  if ((inv.networks || []).some((n) => lc(n.name) === lc(full))) { add(`A Wi-Fi network named "${full}" already exists in R1. Rename this one.`); Object.assign(issues[issues.length - 1], { fix: "rename", suggest: freeName(g.name, (inv.networks || []).map((n) => n.name), opts.prefix || "") }); }
   if (ssid && (inv.networks || []).some((n) => lc(n.ssid) === lc(ssid))) add(`A Wi-Fi network with the SSID "${ssid}" already exists in R1: choose a different one.`);
   return issues;
 }
@@ -295,6 +295,13 @@ function newNode(type, name) {
 function newOption(name) { return { id: uid("o"), name, text: "", steps: [] }; }
 function blankWorkflow(name = "New workflow") { return { name, description: "", steps: [] }; }
 
+// A name that isn't taken yet ("Visitors" -> "Visitors (2)"), for the "Rename" fix. `taken` is a list of names already in R1.
+function freeName(name, taken, prefix = "") {
+  const used = new Set((taken || []).map((x) => String(x).toLowerCase()));
+  const base = String(name || "Untitled").replace(/ \(\d+\)$/, "").slice(0, 90);
+  for (let n = 2; n < 1000; n++) { const c = `${base} (${n})`; if (!used.has((prefix + c).toLowerCase())) return c; }
+  return base + " (copy)";
+}
 const lc = (s) => String(s || "").toLowerCase();
 const find = (list, name) => (list || []).find((x) => lc(x.name) === lc(name));
 
@@ -385,7 +392,7 @@ function validate(wf, inv = {}, opts = {}) {
   const add = (level, message, nodeId, fix) => issues.push(fix ? { level, message, nodeId, fix } : { level, message, nodeId });
   if (!String(wf.name || "").trim()) add("error", "The workflow needs a name.");
   else if (String(wf.name).length > 100) add("error", "The workflow name is over 100 characters.");
-  if ((inv.workflows || []).some((w) => lc(w.name) === lc((opts.prefix || "") + wf.name))) add("error", `A workflow named "${(opts.prefix || "") + wf.name}" already exists in R1. Rename this one.`);
+  if ((inv.workflows || []).some((w) => lc(w.name) === lc((opts.prefix || "") + wf.name))) { add("error", `A workflow named "${(opts.prefix || "") + wf.name}" already exists in R1. Rename this one.`, undefined, "rename"); issues[issues.length - 1].suggest = freeName(wf.name, (inv.workflows || []).map((w) => w.name), opts.prefix || ""); }
   if (!wf.steps.length) add("error", "Add at least one step.");
   const newPools = new Set(), newTpls = new Set(), newLists = new Set();
   const walk = (nodes) => {
@@ -575,4 +582,4 @@ function sniffImage(buf) {
   if (head.startsWith("<svg") || (head.startsWith("<?xml") && head.includes("<svg"))) return "image/svg+xml";
   return null;
 }
-module.exports = { ruleToConditions, regexToComparison, lookFromCloudpath, LOGIC_FIELDS, LOGIC_OPS, newCondition, guestFromPlan, sniffImage, LOOK_COLORS, DEFAULT_LOOK, validateLook, lookParts, GUEST_FIELDS, GUEST_TYPES, blankGuestNetwork, validateGuestNetwork, guestNetworkBody, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, createMissing, ACTIONS, PLACEHOLDER, ONBOARD, newNode, newOption, blankWorkflow, fromPlan, validate, toBuildWorkflow, toBuildNodes, outline, everyBranchOnboards, visible, uid };
+module.exports = { freeName, ruleToConditions, regexToComparison, lookFromCloudpath, LOGIC_FIELDS, LOGIC_OPS, newCondition, guestFromPlan, sniffImage, LOOK_COLORS, DEFAULT_LOOK, validateLook, lookParts, GUEST_FIELDS, GUEST_TYPES, blankGuestNetwork, validateGuestNetwork, guestNetworkBody, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, createMissing, ACTIONS, PLACEHOLDER, ONBOARD, newNode, newOption, blankWorkflow, fromPlan, validate, toBuildWorkflow, toBuildNodes, outline, everyBranchOnboards, visible, uid };

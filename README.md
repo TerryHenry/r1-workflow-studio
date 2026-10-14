@@ -81,6 +81,7 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
   choose or create an R1 object, only in part, or not at all, plus how sure we are (confirmed live, from the docs, assumed, or not crawled).
   Cloudpath areas the crawler doesn't read (authentication servers, notification templates, data, integrations) are listed as "not read"
   rather than guessed. The catalog is in `src/coverage.js`: update it when the tool learns to convert something new.
+- **Names already in R1**: if the name is taken (for instance right after you deploy it), the Problems tab offers "Rename to “Name (2)”" (the next free one) or a name of your choice, and after a successful apply the Preview tab offers "Keep editing as …". The name box at the top of the page always renames what is open. The copy already in R1 is never changed by the editor; rename or delete that one in RUCKUS One.
 
 ## Step mapping
 | Cloudpath | R1 action | Support |

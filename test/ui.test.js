@@ -86,6 +86,11 @@ test("apply is refused unless this exact workflow was previewed first", async ()
     assert.ok(s.fake.calls.some((c) => c.method === "POST" && c.path === "/workflows"));
     assert.ok(fs.existsSync(path.join(s.root, "data", "created.json")), "created objects are recorded for undo");
     assert.equal((await s.post("/api/apply", { workflow: wf, options: {}, hash: pv.hash })).status, 409, "a preview can be used once");
+    // after deploying, the same name is taken: the editor offers a free one
+    await s.post("/api/refresh", {});
+    const again = (await s.post("/api/validate", { workflow: wf, options: {} })).json().issues.find((i) => /already exists in R1/.test(i.message));
+    assert.equal(again.fix, "rename"); assert.equal(again.suggest, "Editor test (2)");
+    assert.deepEqual((await s.post("/api/validate", { workflow: { ...wf, name: again.suggest }, options: {} })).json().issues.filter((i) => i.level === "error"), []);
   } finally { await s.close(); }
 });
 

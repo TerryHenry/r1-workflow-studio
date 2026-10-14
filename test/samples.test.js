@@ -40,3 +40,14 @@ test("a split with more than 10 branches is an error (R1 refuses the 11th)", () 
   sp.options.length = 10;
   assert.ok(!m.validate(wf, inv).some((i) => /at most 10/.test(i.message)));
 });
+
+test("a name that already exists in R1 gets a Rename fix with a free suggestion", () => {
+  const wf = { name: "Visitors", steps: [m.newNode("AUP")] };
+  const taken = { ...inv, workflows: [{ name: "Visitors" }, { name: "visitors (2)" }] };
+  const clash = m.validate(wf, taken).find((i) => /already exists/.test(i.message));
+  assert.equal(clash.fix, "rename"); assert.equal(clash.suggest, "Visitors (3)");
+  assert.equal(m.freeName("Visitors (2)", ["Visitors (2)", "Visitors (3)"]), "Visitors (4)");
+  assert.equal(m.freeName("Lobby", ["P-Lobby (2)"], "P-"), "Lobby (3)");
+  const t = m.validateTemplate({ ...m.blankTemplate(), name: "Staff", caId: "" }, { certTemplates: [{ name: "Staff" }] }).find((i) => /already exists/.test(i.message));
+  assert.equal(t.fix, "rename"); assert.equal(t.suggest, "Staff (2)");
+});

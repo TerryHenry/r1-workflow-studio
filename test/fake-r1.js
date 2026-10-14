@@ -22,6 +22,7 @@ function fakeR1({ failOn, existing = {} } = {}) {
       if (method === "POST" && /\/splitOptions$/.test(p)) { const id = "opt-" + ++n; (store.options[p.split("/")[4]] = store.options[p.split("/")[4]] || []).push({ id, optionName: body.optionName }); return { id }; }
       if (method === "POST" && p === "/wifiNetworks") { store.nets.push({ id: "net-" + ++n, ssid: body.wlan.ssid, name: body.name }); return { requestId: "req-1" }; }
       if (method === "GET" && /^\/dpskServices\/[^/]+$/.test(p)) return { id: p.split("/").pop(), identityGroupId: "auto-grp-" + p.split("/").pop() };
+      if (method === "POST" && p === "/workflows") { const id = "id-" + ++n; store.workflows.push({ id, name: body.name }); return { id }; }
       if (method === "POST") return { id: "id-" + ++n };
       return {};
     },

@@ -530,7 +530,24 @@ function fixControls(issues) {
 }
 function issueItems(issues) {
   return h("ul", { class: "issues" }, issues.map((i) => h("li", { class: i.level, onclick: () => { if (i.nodeId) select(i.nodeId); } }, (i.level === "error" ? "✖ " : "⚠ ") + i.message,
-    i.fix === "createMissing" ? h("div", { style: "margin-top:3px" }, h("button", { class: "btn small", title: "Choose the object if R1 has it, otherwise create it", onclick: (e) => { e.stopPropagation(); fixMissing([i.nodeId]); } }, "Create if missing")) : null)));
+    i.fix === "createMissing" ? h("div", { style: "margin-top:3px" }, h("button", { class: "btn small", title: "Choose the object if R1 has it, otherwise create it", onclick: (e) => { e.stopPropagation(); fixMissing([i.nodeId]); } }, "Create if missing")) : null,
+    i.fix === "rename" ? h("div", { style: "margin-top:3px;display:flex;gap:6px;flex-wrap:wrap" }, h("button", { class: "btn small", onclick: (e) => { e.stopPropagation(); renameTo(i.suggest); } }, "Rename to “" + i.suggest + "”"), h("button", { class: "btn small", onclick: (e) => { e.stopPropagation(); renamePrompt(); } }, "Choose another name…")) : null)));
+}
+// Rename what is open (a workflow, template or guest network). Same path as typing in the name box at the top.
+function renameTo(name) {
+  if (!name) return;
+  if (S.obj) { S.obj.name = name; tplChanged(); } else if (S.wf) { S.wf.name = name; changed(false); } else return;
+  $("#wfName").value = name; renderAll();
+}
+function renamePrompt() { const cur = S.obj || S.wf; const n = prompt("New name:", cur ? cur.name : ""); if (n && n.trim()) renameTo(n.trim().slice(0, 100)); }
+// The next free "Name (2)" among what R1 already has, for the thing that is open.
+function nextFreeName() {
+  const cur = S.obj || S.wf; if (!cur) return "";
+  const list = S.obj ? (S.obj.kind === "certTemplate" ? S.inv.certTemplates : S.inv.networks) : S.inv.workflows;
+  const used = new Set((list || []).map((x) => x.name.toLowerCase())), pre = options().prefix || "";
+  const base = cur.name.replace(/ \(\d+\)$/, "").slice(0, 90);
+  for (let n = 2; n < 1000; n++) if (!used.has((pre + base + " (" + n + ")").toLowerCase())) return base + " (" + n + ")";
+  return base + " (copy)";
 }
 async function fixMissing(ids) {
   try {
@@ -742,7 +759,8 @@ function renderPreview(P) {
   const Pv = S.preview, stale = Pv && S.previewKey !== key();
   P.append(h("div", { style: "display:flex;gap:8px;align-items:center;margin-bottom:8px" }, h("button", { class: "btn primary", onclick: doPreview, id: "runPreview" }, Pv ? "Preview again" : "Preview changes"), h("button", { class: "btn", onclick: () => setTab("try") }, "▶ Try it as a visitor"), h("span", { class: "hint" }, "Reads RUCKUS One; sends nothing.")));
   if (S.fixNote && S.fixNote.length) P.append(h("div", { class: "note ok" }, S.fixNote.map((m) => h("div", {}, "✔ " + m))));
-  if (S.applied) P.append(h("div", { class: "note " + (S.applied.ok ? "ok" : "bad") }, S.applied.text, S.applied.undo ? h("div", { style: "margin-top:6px" }, "To remove everything this tool created: ", h("code", {}, "node bin/undo.js --yes")) : null));
+  if (S.applied) P.append(h("div", { class: "note " + (S.applied.ok ? "ok" : "bad") }, S.applied.text, S.applied.undo ? h("div", { style: "margin-top:6px" }, "To remove everything this tool created: ", h("code", {}, "node bin/undo.js --yes")) : null,
+    S.applied.ok ? h("div", { style: "margin-top:8px" }, h("div", { class: "hint" }, "This name is now taken in R1, so applying again needs a different one. The copy in R1 is never changed by this editor."), h("button", { class: "btn small", style: "margin-top:4px", onclick: () => renameTo(nextFreeName()) }, "Keep editing as “" + nextFreeName() + "”"), " ", h("button", { class: "btn small", onclick: renamePrompt }, "Choose another name…")) : null));
   if (!Pv) { P.append(h("div", { class: "note" }, "Preview shows the finished workflow, every object that would be created, and each call, before anything is sent.")); return; }
   if (stale) P.append(h("div", { class: "note bad" }, "You changed the workflow after this preview. Preview again before applying."));
   if (Pv.error) P.append(h("div", { class: "note bad" }, "The preview failed: " + Pv.error));
