@@ -248,6 +248,12 @@ function guestNetworkBody(g, prefix = "") {
 
 // A Cloudpath workflow that verifies a voucher code (oob step) is, in R1, a guest network where visitors sign in with a pass.
 // `cpWf` is the raw crawled Cloudpath workflow. Returns { guest, notes }, or null when it has no voucher step.
+const guestNameFor = (wfName) => `${wfName} guest network`.slice(0, 100);
+// A workflow that is nothing but a voucher sign-in (policy, voucher, hand-over): the whole thing is one R1 guest network.
+function voucherOnly(cpWf) {
+  const top = (cpWf && cpWf.steps) || [];
+  return top.some((s) => s.kind === "oob") && top.every((s) => ["aup", "oob", "output", "concurrent"].includes(s.kind));
+}
 function guestFromPlan(cpWf) {
   const planWf = cpWf, found = {};
   (function walk(nodes) { for (const n of nodes || []) { if (n.kind === "aup" && !found.aup) found.aup = n; if (n.kind === "oob" && !found.oob) found.oob = n; for (const o of n.options || []) walk(o.steps); } })(cpWf.steps);
@@ -255,7 +261,7 @@ function guestFromPlan(cpWf) {
   const val = (n, key) => { const v = n && n.fields && n.fields[key]; return v == null ? "" : typeof v === "object" ? (v.default || v.text || "") : String(v); };
   const slug = String(planWf.name).replace(/[^\w -]/g, "").trim().slice(0, 24) || "workflow";
   const g = blankGuestNetwork();
-  Object.assign(g, { name: `${planWf.name} guest network`.slice(0, 100), ssid: `${slug}-guest`.slice(0, 32), description: `Converted from the Cloudpath workflow "${planWf.name}" (voucher sign-in)`, title: "Welcome", welcomeMessage: "Enter the code you were given" });
+  Object.assign(g, { name: guestNameFor(planWf.name), ssid: `${slug}-guest`.slice(0, 32), description: `Converted from the Cloudpath workflow "${planWf.name}" (voucher sign-in)`, title: "Welcome", welcomeMessage: "Enter the code you were given" });
   const notes = [];
   const lists = [val(found.oob, "otpListPk"), val(found.oob, "alternateOtpListPks")].filter(Boolean);
   const sms = val(found.oob, "allowSms") === "1", mail = val(found.oob, "allowEmail") === "1";
@@ -308,9 +314,22 @@ const find = (list, name) => (list || []).find((x) => lc(x.name) === lc(name));
 // ---- Cloudpath plan -> model --------------------------------------------------------------------------------------
 // planWf: a workflow from convertAll(); inv: tenant inventory (see ui-server); objects: crawl.objects.
 function fromPlan(planWf, inv, objects) {
+  const movedNotes = [], guestName = guestNameFor(planWf.name);
+  const voucherBranch = (o) => (o.steps || []).some((x) => x.cloudpath && x.cloudpath.kind === "oob");
   const convert = (nodes) => {
     const out = [];
-    for (const n of nodes || []) {
+    for (let n of nodes || []) {
+      // A voucher sign-in is a guest network in R1, not a workflow step: a branch that has one moves out to the guest network.
+      if (n.options && n.options.some(voucherBranch)) {
+        const moved = n.options.filter(voucherBranch), kept = n.options.filter((o) => !voucherBranch(o));
+        const cert = moved.flatMap((o) => o.steps || []).find((x) => x.r1 && x.r1.actionType === "CERT_TEMPLATE");
+        const names = moved.map((o) => "“" + o.name.replace(/\.{3}$/, "") + "”").join(", ");
+        movedNotes.push(`The branch ${names} (voucher sign-in) is not in this workflow: R1 workflows have no voucher step, so it became the guest network “${guestName}”, which is listed next to this workflow.` +
+          (cert ? ` After the voucher Cloudpath also assigned the certificate “${(cert.ref && cert.ref.template) || cert.cloudpath.name}”: a guest network can't issue certificates, so that part is not converted.` : ""));
+        if (!kept.length) continue;
+        if (kept.length === 1) { movedNotes.push(`The choice “${(n.cloudpath && (n.cloudpath.name || n.cloudpath.label)) || "User type"}” was left with one option (“${kept[0].name.replace(/\.{3}$/, "")}”), so its steps now run directly.`); out.push(...convert(kept[0].steps)); continue; }
+        n = { ...n, options: kept };
+      }
       const cp = n.cloudpath || {};
       const src = { cloudpathKind: cp.kind, cloudpathName: cp.name || cp.label, notes: n.notes || [] };
       if (!n.r1 && n.end) continue;                               // "(end)" results: the path ends by itself
@@ -370,7 +389,7 @@ function fromPlan(planWf, inv, objects) {
     }
     return out;
   };
-  return { name: planWf.name, description: `Converted from Cloudpath workflow "${planWf.name}" (${planWf.portalUrl || ""})`.trim(), steps: convert(planWf.steps), source: { cloudpath: planWf.name, status: planWf.status } };
+  return { name: planWf.name, description: `Converted from Cloudpath workflow "${planWf.name}" (${planWf.portalUrl || ""})`.trim(), steps: convert(planWf.steps), source: { cloudpath: planWf.name, status: planWf.status, notes: movedNotes } };
 }
 function pick(o, keys) { const r = {}; for (const k of keys) if (o[k] !== undefined) r[k] = o[k]; return r; }
 
@@ -582,4 +601,4 @@ function sniffImage(buf) {
   if (head.startsWith("<svg") || (head.startsWith("<?xml") && head.includes("<svg"))) return "image/svg+xml";
   return null;
 }
-module.exports = { freeName, ruleToConditions, regexToComparison, lookFromCloudpath, LOGIC_FIELDS, LOGIC_OPS, newCondition, guestFromPlan, sniffImage, LOOK_COLORS, DEFAULT_LOOK, validateLook, lookParts, GUEST_FIELDS, GUEST_TYPES, blankGuestNetwork, validateGuestNetwork, guestNetworkBody, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, createMissing, ACTIONS, PLACEHOLDER, ONBOARD, newNode, newOption, blankWorkflow, fromPlan, validate, toBuildWorkflow, toBuildNodes, outline, everyBranchOnboards, visible, uid };
+module.exports = { voucherOnly, guestNameFor, freeName, ruleToConditions, regexToComparison, lookFromCloudpath, LOGIC_FIELDS, LOGIC_OPS, newCondition, guestFromPlan, sniffImage, LOOK_COLORS, DEFAULT_LOOK, validateLook, lookParts, GUEST_FIELDS, GUEST_TYPES, blankGuestNetwork, validateGuestNetwork, guestNetworkBody, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, createMissing, ACTIONS, PLACEHOLDER, ONBOARD, newNode, newOption, blankWorkflow, fromPlan, validate, toBuildWorkflow, toBuildNodes, outline, everyBranchOnboards, visible, uid };

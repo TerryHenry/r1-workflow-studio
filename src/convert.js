@@ -160,7 +160,7 @@ const manual = (why) => () => ({ support: "manual", notes: [why], action: null }
 
 const RULES = {
   aup, dpsk, selection, registration, output,
-  oob: manual("Cloudpath sends a voucher code by email or SMS and the visitor enters it: in R1 terms that is a guest pass. The R1 workflow action list has no guest-pass action (DATA_PROMPT only collects email/phone), so this part moves to an R1 guest network of type GuestPass (passes made by sponsors, the guest API, or bulk import) rather than a workflow step. The AUP becomes the network's terms text, the SMS/email choice becomes the pass delivery methods. See README 'Guest networks'."),
+  oob: manual("The editor converts this automatically to an R1 guest network (a workflow that is only a voucher sign-in opens as one; a voucher branch inside a choice moves out to one). Cloudpath sends a voucher code by email or SMS and the visitor enters it: in R1 terms that is a guest pass. The R1 workflow action list has no guest-pass action (DATA_PROMPT only collects email/phone), so this part moves to an R1 guest network of type GuestPass (passes made by sponsors, the guest API, or bulk import) rather than a workflow step. The AUP becomes the network's terms text, the SMS/email choice becomes the pass delivery methods. See README 'Guest networks'."),
   credprompt: manual("Cloudpath asks for a username and password checked against its own user database or a directory. R1 offers LDAP_AUTH_PROVIDER / IDP_AUTH_PROVIDER (external directory, SSO); an internal Cloudpath user database has no equivalent."),
   concurrent: manual("Cloudpath reminds the user to remove old certificates. R1 has no such step; use DISPLAY_MESSAGE to tell them, or drop it."),
 };

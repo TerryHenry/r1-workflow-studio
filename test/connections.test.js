@@ -106,7 +106,7 @@ test("Cloudpath crawls: load a file, keep the old one, switch back, refuse bad f
     assert.ok(first, "original instance saved");
     const back = await s.post("/api/connections/cloudpath/use", { file: first.file });
     assert.equal(back.json().cloudpath.active.source, crawl.source);
-    assert.equal((await s.call("GET", "/api/state")).json().cloudpath.length, crawl.workflows.length);
+    assert.equal((await s.call("GET", "/api/state")).json().cloudpath.length, crawl.workflows.length + 1);
     assert.equal((await s.post("/api/connections/cloudpath/load", { text: "{nope" })).status, 400);
     assert.equal((await s.post("/api/connections/cloudpath/load", { text: JSON.stringify({ workflows: "x" }) })).status, 400);
     assert.equal((await s.post("/api/connections/cloudpath/use", { file: "../../etc/passwd" })).status, 400);

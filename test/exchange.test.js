@@ -93,3 +93,31 @@ test("coverage chart: counts come from the crawl, the page has no scripts, and t
   const none = coverage(null);
   assert.equal(none.hasCrawl, false); assert.ok(html(none).includes("No Cloudpath crawl is loaded"));
 });
+
+test("voucher sign-ins convert automatically: a voucher-only workflow is one guest network, a voucher branch moves out to a companion", async () => {
+  const { voucherOnly, guestFromPlan, validateGuestNetwork } = require("../src/model");
+  const voucherFlow = crawl.workflows.find((w) => w.name === "voucherFlow"), production = crawl.workflows.find((w) => w.name === "Corporate"), dpsk = crawl.workflows.find((w) => w.name === "personalPassphrase");
+  assert.equal(voucherOnly(voucherFlow), true); assert.equal(voucherOnly(production), false, "a voucher inside a choice is not the whole workflow"); assert.equal(voucherOnly(dpsk), false);
+  const g = guestFromPlan(voucherFlow);
+  assert.equal(g.guest.name, "voucherFlow guest network"); assert.equal(g.guest.guestNetworkType, "GuestPass");
+  assert.deepEqual(validateGuestNetwork(g.guest, inv, {}).filter((i) => !/Terms/i.test(i.message)), [], "only the terms text is left for the user");
+  // through the server: the list shows the guest network (and no workflow) for voucherFlow, workflow + companion for Corporate
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path"), http = require("node:http");
+  const { createUiServer } = require("../src/ui-server");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "c2r-v-")); fs.mkdirSync(path.join(root, "ui"), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, "..", "ui", "index.html"), path.join(root, "ui", "index.html"));
+  const server = createUiServer({ client: null, crawl, root }); await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    const st = await new Promise((resolve) => http.get({ host: "127.0.0.1", port: server.address().port, path: "/api/state" }, (res) => { let d = ""; res.on("data", (c) => (d += c)); res.on("end", () => resolve(JSON.parse(d))); }));
+    const names = st.cloudpath.map((x) => x.name + (x.kind === "guestNetwork" ? " [guest]" : ""));
+    assert.ok(names.includes("voucherFlow guest network [guest]") && !names.includes("voucherFlow"));
+    assert.ok(names.includes("Corporate") && names.includes("Corporate guest network [guest]"));
+    const comp = st.cloudpath.find((x) => x.name === "Corporate guest network");
+    assert.ok(comp._notes.some((n) => /voucher branch/.test(n)));
+    assert.ok(st.cloudpath.find((x) => x.name === "Corporate")._notes.some((n) => /guest network/.test(n)));
+    const only = st.cloudpath.find((x) => x.name === "voucherFlow guest network");
+    assert.ok(only._notes.some((n) => /Converted automatically/.test(n)));
+  } finally { await new Promise((r) => server.close(r)); }
+  const cov = coverage(crawl, {});
+  assert.equal(cov.rows.find((r) => r.id === "oob").status, "converts");
+});

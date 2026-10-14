@@ -55,7 +55,7 @@ test("state has the schema, converted Cloudpath workflows and no secrets", async
   try {
     const st = (await s.call("GET", "/api/state")).json();
     assert.ok(st.schema.DPSK && st.schema.CERT_TEMPLATE);
-    assert.equal(st.cloudpath.length, crawl.workflows.length);
+    assert.equal(st.cloudpath.length, crawl.workflows.length + 1, "the voucher-only workflow is one guest network entry; Corporate gets a companion guest network");
     assert.deepEqual(st.inventory.cas, [{ id: "ca-1", name: "Test CA" }]);
     assert.ok(!JSON.stringify(st).includes("SECRET"), "CA private key must never be sent to the browser");
     assert.equal(st.inventory.venues[0].name, "Home");
@@ -157,14 +157,19 @@ test("model: Cloudpath workflows convert to an editable model and back to builde
   const inv = { dpskPools: [], macPools: [], certTemplates: [{ id: "t1", name: "Guest Policy Template", identityGroupId: "g1" }, { id: "t2", name: "BYOD Policy Template", identityGroupId: "g2" }], cas: [], networks: [], workflows: [] };
   const plan = convertAll(crawl, {});
   const prod = fromPlan(plan.workflows.find((w) => w.name === "Corporate"), inv, crawl.objects);
-  assert.ok(outline(prod.steps).some((l) => /UNSUPPORTED: Guest SMS Prompt/.test(l)));
+  // the voucher branch ("Visitors") moves out to a guest network; the choice is left with one option, so Employees' steps run directly
+  assert.ok(!outline(prod.steps).some((l) => /Guest SMS Prompt/.test(l)));
+  assert.ok(!prod.steps.some((n) => n.options), "no choice is left with a single option");
+  assert.ok(prod.source.notes.some((n) => /Visitors.*voucher.*guest network “Corporate guest network”/.test(n)));
+  assert.ok(prod.source.notes.some((n) => /certificate “Guest Policy Template”/.test(n)), "the lost certificate is mentioned");
+  assert.ok(outline(prod.steps).some((l) => /UNSUPPORTED: Prompt the user for credentials/.test(l)), "other unsupported steps still show");
   // delete the placeholders (what the user does in the editor) and the workflow validates and converts
   const strip = (nodes) => nodes.filter((n) => n.type !== "UNSUPPORTED").map((n) => ({ ...n, options: n.options && n.options.map((o) => ({ ...o, steps: strip(o.steps) })) }));
   const cleaned = { ...prod, steps: strip(prod.steps) };
   assert.deepEqual(validate(cleaned, inv).filter((i) => i.level === "error"), []);
   const bw = toBuildWorkflow(cleaned, inv);
-  assert.equal(bw.steps[1].options.length, 2);
-  assert.equal(bw.steps[1].options[0].steps[0].r1.certTemplateId, "t1");
+  assert.equal(bw.steps.length, 2);
+  assert.equal(bw.steps[1].r1.certTemplateId, "t2");
   const gen = fromPlan(plan.workflows.find((w) => w.name === "personalPassphrase"), { dpskPools: [], macPools: [], certTemplates: [], cas: [], networks: [], workflows: [] }, crawl.objects);
   assert.equal(gen.steps[0].params.mode, "new");
   assert.equal(gen.steps[0].params.newName, "example-ssid pool");

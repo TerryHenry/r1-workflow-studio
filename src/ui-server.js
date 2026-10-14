@@ -13,7 +13,7 @@ const crypto = require("crypto");
 const { convertAll } = require("./convert");
 const { Builder, makeApi } = require("./build");
 const { loadInventory } = require("./inventory");
-const { ACTIONS, fromPlan, validate, toBuildWorkflow, blankWorkflow, createMissing, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, GUEST_FIELDS, blankGuestNetwork, validateGuestNetwork, LOOK_COLORS, DEFAULT_LOOK, guestFromPlan, LOGIC_FIELDS, LOGIC_OPS, lookFromCloudpath } = require("./model");
+const { ACTIONS, fromPlan, validate, toBuildWorkflow, blankWorkflow, createMissing, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, GUEST_FIELDS, blankGuestNetwork, validateGuestNetwork, voucherOnly, LOOK_COLORS, DEFAULT_LOOK, guestFromPlan, LOGIC_FIELDS, LOGIC_OPS, lookFromCloudpath } = require("./model");
 const { importWorkflow, importCertTemplate, importGuestNetwork } = require("./r1import");
 const { appendCreated } = require("./ledger");
 const { samples } = require("./samples");
@@ -41,11 +41,16 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
     if (!crawl) return [];
     const i = await getInv();
     const plan = convertAll(crawl, mapping);
-    return plan.workflows.map((w) => {
-      const model = fromPlan(w, i, crawl.objects);
+    return plan.workflows.flatMap((w) => {
       const raw = crawl.workflows.find((x) => x.name === w.name), lf = raw && lookFromCloudpath(raw.look, w.name);
+      const guest = raw && guestFromPlan(raw);
+      // A voucher sign-in is a guest pass, which in R1 is a guest network. A workflow that is only that opens as the guest network.
+      const asGuest = (extra) => ({ ...guest.guest, _notes: [...extra, ...guest.notes, ...(lf ? ["This Cloudpath workflow had its own look and feel (colours, titles). This tool can't apply a look to a guest network: set the portal title and tag line here."] : [])] });
+      if (guest && voucherOnly(raw)) return [asGuest(["Converted automatically: in R1 a voucher sign-in is a guest network, not a workflow. Check the Wi-Fi name, add the terms, then preview and apply."])];
+      const model = fromPlan(w, i, crawl.objects);
       if (lf) { model.look = lf.look; model.source = { ...model.source, lookNotes: lf.notes }; }
-      return model;
+      model._notes = (model.source && model.source.notes) || [];
+      return guest ? [model, asGuest(["Made from the voucher branch of the Cloudpath workflow “" + w.name + "”, which can't be part of an R1 workflow."])] : [model];
     });
   }
 

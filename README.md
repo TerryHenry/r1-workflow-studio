@@ -106,7 +106,7 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
 | output with certificate template | CERT_TEMPLATE | needs template mapping |
 | output after DPSK / MAC | end of path | auto |
 | output (other) | PASSPHRASE | needs network mapping, verify |
-| oob (voucher / verification code) | none in workflows: it is an R1 guest pass (guest network) | manual |
+| oob (voucher / verification code) | an R1 guest network (a guest pass is the same thing; R1 has no voucher step). A workflow that is only a voucher sign-in opens as a guest network automatically; a voucher branch inside a choice is moved out of the workflow into a companion guest network, with a note | auto |
 | credprompt, concurrent | none | manual |
 
 R1 specs: https://docs.ruckus.cloud/api (Workflow Management API 0.0.4, Workflow Actions API 0.0.2).

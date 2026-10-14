@@ -20,7 +20,7 @@ function kindOf(model) { return model && model.kind === "certTemplate" ? "certTe
 function exportFile(model, now = new Date()) {
   if (!model || typeof model !== "object") throw bad("Nothing to export.");
   const data = clone(model);
-  delete data._issues;
+  delete data._issues; delete data._notes;
   const kind = kindOf(model);
   const text = JSON.stringify({ format: FORMAT, version: VERSION, kind, name: str(model.name, 100), exportedAt: now.toISOString(), data }, null, 2);
   const safe = str(model.name || kind, 60).replace(/[^\w .()-]+/g, "_").trim() || kind;

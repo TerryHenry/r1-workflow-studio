@@ -302,7 +302,7 @@ function renderLeft() {
     L.append(h("div", { class: "hint", style: "margin:0 0 6px" }, i ? host + " · read " + String(i.crawledAt).slice(0, 10) + " · " + i.workflows + " workflow" + (i.workflows === 1 ? "" : "s") : "No Cloudpath instance loaded.", " ",
       h("button", { class: "btn small", onclick: () => openConnections("cloudpath") }, i ? "Change…" : "Read a Cloudpath instance…"))); }
   if (S.cloudpath.length) {
-    L.append(h("div", { class: "list" }, S.cloudpath.map((w) => h("button", { class: S.source === "cp:" + w.name ? "on" : "", onclick: () => openWorkflow(clone(w), "cp:" + w.name) }, h("span", {}, w.name),
+    L.append(h("div", { class: "list" }, S.cloudpath.map((w) => h("button", { class: S.source === "cp:" + w.name ? "on" : "", title: w.kind === "guestNetwork" ? "A voucher sign-in is a guest network in R1: this opens it as one" : "", onclick: () => { const m = clone(w), notes = m._notes; delete m._notes; delete m._issues; openWorkflow(m, "cp:" + w.name, notes); } }, h("span", {}, (w.kind === "guestNetwork" ? "📶 " : "") + w.name),
       h("span", { class: "pill " + (w._issues ? "bad" : "ok") }, w._issues ? w._issues + " to fix" : "ready")))));
     L.append(h("p", { class: "hint" }, "Steps Cloudpath has but R1 doesn't show as red dashed cards. Replace or delete them."));
   }
@@ -1013,10 +1013,16 @@ async function openConnections(focus) {
   if (focus === "cloudpath" && !C.cloudpath.active) armCrawl();
 }
 function closeConnections() { clearInterval(cpoll); cpoll = null; closeModal(); }
+async function cpIssueCount(w) {
+  try {
+    const r = w.kind === "guestNetwork" ? await api("/api/guest/validate", { guest: w, options: {} }) : await api("/api/validate", { workflow: w, options: {} });
+    return r.issues.filter((i) => i.level === "error").length;
+  } catch { return 0; }
+}
 async function reloadAfter(what) {
   const st = await api("/api/state");
   Object.assign(S, { inv: st.inventory, cloudpath: st.cloudpath, live: st.live, connName: st.connection.name, cpInfo: st.cloudpathInfo, preview: null, previewKey: null, applied: null });
-  for (const w of S.cloudpath) { try { w._issues = (await api("/api/validate", { workflow: w, options: {} })).issues.filter((i) => i.level === "error").length; } catch { w._issues = 0; } }
+  for (const w of S.cloudpath) w._issues = await cpIssueCount(w);
   if (what === "r1") S.importNotes = (S.importNotes || []).concat(["The connection changed. Anything here that points at RUCKUS One objects by id may not exist in this tenant: see the Problems tab."]).slice(-3);
   try { await validate(); } catch {}
   renderAll();
@@ -1178,7 +1184,7 @@ $("#btnUndo").addEventListener("click", undo); $("#btnRedo").addEventListener("c
     const st = await api("/api/state");
     S.connName = st.connection.name; S.cpInfo = st.cloudpathInfo;
     Object.assign(S, { schema: st.schema, inv: st.inventory, cloudpath: st.cloudpath, drafts: st.drafts, samples: st.samples, blank: st.blank, live: st.live, tplFields: st.templateFields, blankTpl: st.blankTemplate, guestFields: st.guestFields, blankGuest: st.blankGuest, logicFields: st.logicFields, logicOps: st.logicOps, lookColors: st.lookColors, defaultLook: st.defaultLook });
-    for (const w of S.cloudpath) { try { w._issues = (await api("/api/validate", { workflow: w, options: {} })).issues.filter((i) => i.level === "error").length; } catch { w._issues = 0; } }
+    for (const w of S.cloudpath) w._issues = await cpIssueCount(w);
     S.wf = null; renderAll();
   } catch (e) { $("#flow").append(h("p", { style: "color:var(--bad)" }, "Could not load: " + e.message)); }
 })();
