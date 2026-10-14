@@ -50,13 +50,14 @@ const ACTIONS = {
       f("expirationType", "Registrations last", "select", { choices: MAC_SPANS.map((x) => [x, x.replace("_AFTER_TIME", "").toLowerCase()]), showIf: { mode: "new" } }),
       f("expirationOffset", "…for this many", "number", { min: 1, showIf: { mode: "new" } }),
       f("clientEnterMacAddress", "Visitor types the MAC address", "bool")] },
-  CERT_TEMPLATE: { label: "Issue a certificate", category: "onboard", help: "Installs a client certificate from a certificate template.", defaults: { mode: "existing", commonNamePattern: "$(USERNAME)", validityType: "YEARS", validityValue: 1, startType: "DAYS", startValue: 0, algorithm: "SHA_256", keyLength: 2048 },
+  CERT_TEMPLATE: { label: "Issue a certificate", category: "onboard", help: "Installs a client certificate from a certificate template.", defaults: { mode: "existing", commonNamePattern: "$(USERNAME)", validityType: "YEARS", validityValue: 1, startType: "DAYS", startValue: 1, algorithm: "SHA_256", keyLength: 2048 },
     fields: [f("mode", "Certificate template", "mode", { choices: [["existing", "Use an existing template"], ["new", "Create a new template"]] }),
       f("certTemplateId", "Template", "ref", { ref: "certTemplates", showIf: { mode: "existing" }, required: true }),
       f("newName", "New template name", "text", { max: 100, showIf: { mode: "new" }, required: true }),
       f("caId", "Issued by (certificate authority)", "ref", { ref: "cas", showIf: { mode: "new" }, required: true }),
       f("commonNamePattern", "Common name pattern", "text", { showIf: { mode: "new" }, required: true }),
       f("validityValue", "Valid for", "number", { min: 1, showIf: { mode: "new" } }), f("validityType", "…unit", "select", { choices: SPANS.map((x) => [x, x.toLowerCase()]), showIf: { mode: "new" } }),
+      f("startValue", "Starts this long before it is issued", "number", { min: 1, showIf: { mode: "new" }, help: "RUCKUS One requires more than 0 (a small head start covers clocks that are a little off)." }), f("startType", "…unit", "select", { choices: SPANS.map((x) => [x, x.toLowerCase()]), showIf: { mode: "new" } }),
       f("organization", "Organization", "text", { showIf: { mode: "new" } }), f("locality", "City", "text", { showIf: { mode: "new" } }), f("state", "State", "text", { showIf: { mode: "new" } }), f("country", "Country", "text", { showIf: { mode: "new" } })] },
   PASSPHRASE: { label: "Give the network's passphrase", category: "onboard", help: "Hands out a network's shared passphrase.", defaults: {},
     fields: [f("networkId", "Network", "ref", { ref: "networks", required: true }), f("identityGroupId", "Identity group", "ref", { ref: "identityGroups", required: true })] },
@@ -79,11 +80,11 @@ const TEMPLATE_FIELDS = [
   f("caId", "Issued by (certificate authority)", "ref", { ref: "cas", required: true }),
   f("commonNamePattern", "Common name pattern", "text", { required: true, help: "e.g. $(USERNAME)@example.com" }), f("emailPattern", "Email pattern", "text"),
   f("validityValue", "Valid for", "number", { min: 1, required: true }), f("validityType", "…unit", "select", { choices: SPANS.map((x) => [x, x.toLowerCase()]) }),
-  f("startValue", "Starts this long before issue", "number", { min: 0 }), f("startType", "…unit", "select", { choices: SPANS.map((x) => [x, x.toLowerCase()]) }),
+  f("startValue", "Starts this long before issue", "number", { min: 1, help: "RUCKUS One requires more than 0." }), f("startType", "…unit", "select", { choices: SPANS.map((x) => [x, x.toLowerCase()]) }),
   f("organization", "Organization", "text"), f("organizationUnit", "Organization unit", "text"), f("locality", "City", "text"), f("state", "State", "text"), f("country", "Country", "text"),
   f("algorithm", "Signature algorithm", "select", { choices: ["SHA_1", "SHA_256", "SHA_384", "SHA_512"].map((x) => [x, x]) }), f("keyLength", "Key length", "select", { choices: [["2048", "2048"], ["3072", "3072"], ["4096", "4096"]] }),
 ];
-function blankTemplate() { return { kind: "certTemplate", name: "New certificate template", description: "", caId: "", commonNamePattern: "$(USERNAME)", emailPattern: "", validityType: "YEARS", validityValue: 1, startType: "DAYS", startValue: 0, organization: "", organizationUnit: "", locality: "", state: "", country: "", algorithm: "SHA_256", keyLength: 2048 }; }
+function blankTemplate() { return { kind: "certTemplate", name: "New certificate template", description: "", caId: "", commonNamePattern: "$(USERNAME)", emailPattern: "", validityType: "YEARS", validityValue: 1, startType: "DAYS", startValue: 1, organization: "", organizationUnit: "", locality: "", state: "", country: "", algorithm: "SHA_256", keyLength: 2048 }; }
 function validateTemplate(t, inv = {}, opts = {}) {
   const issues = [], add = (message) => issues.push({ level: "error", message });
   for (const fd of TEMPLATE_FIELDS) {
@@ -102,7 +103,7 @@ function validateTemplate(t, inv = {}, opts = {}) {
 function templateRef(t, prefix = "") {
   const span = (type, value) => ({ type, value: Number(value) });
   return { template: prefix + t.name, info: { name: prefix + t.name, description: t.description, caId: t.caId, cnPattern: t.commonNamePattern, emailPattern: t.emailPattern,
-    validity: span(t.validityType, t.validityValue || 1), notBefore: span(t.startType || "DAYS", t.startValue || 0), organization: t.organization, organizationUnit: t.organizationUnit,
+    validity: span(t.validityType, t.validityValue || 1), notBefore: span(t.startType || "DAYS", Number(t.startValue) > 0 ? t.startValue : 1), organization: t.organization, organizationUnit: t.organizationUnit,
     locality: t.locality, state: t.state, country: t.country, algorithm: t.algorithm, keyLength: Number(t.keyLength) || 2048 } };
 }
 
@@ -599,7 +600,7 @@ function toBuildNodes(steps, inv = {}) {
         r1 = { actionType: "CERT_TEMPLATE", name };
         if (p.mode === "existing") { const t = (inv.certTemplates || []).find((x) => x.id === p.certTemplateId); r1.certTemplateId = p.certTemplateId; r1.identityGroupId = t && t.identityGroupId; ref = { template: t ? t.name : p.certTemplateId }; }
         else ref = { template: p.newName, info: { name: p.newName, caId: p.caId, cnPattern: p.commonNamePattern, validity: { type: p.validityType, value: Number(p.validityValue) || 1 },
-          notBefore: { type: p.startType || "DAYS", value: Number(p.startValue) || 0 }, organization: p.organization, locality: p.locality, state: p.state, country: p.country, algorithm: p.algorithm } };
+          notBefore: { type: p.startType || "DAYS", value: Number(p.startValue) > 0 ? Number(p.startValue) : 1 }, organization: p.organization, locality: p.locality, state: p.state, country: p.country, algorithm: p.algorithm } };
         break;
       }
       case "PASSPHRASE": r1 = { actionType: "PASSPHRASE", name, networkId: p.networkId, identityGroupId: p.identityGroupId }; break;

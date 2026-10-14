@@ -178,7 +178,7 @@ class Builder {
       if (this.api.apply) this.record("identity group", groupId, name, `/identityGroups/${groupId}`);
     }
     const v = info.validity || { type: "YEARS", value: 1 };
-    const nb = info.notBefore || { type: "DAYS", value: 0 };
+    const nb = info.notBefore && Number(info.notBefore.value) > 0 ? info.notBefore : { type: "DAYS", value: 1 };      // RUCKUS One: onboard.notBeforeValue must be greater than 0
     const body = clean({ name, description: info.description || (info.issuingCa ? "Created from Cloudpath certificate template " + name : "Created with R1 Workflow Studio"), caType: "ONBOARD", identityGroupId: groupId, keyLength: info.keyLength || 2048,
       algorithm: ["SHA_1", "SHA_256", "SHA_384", "SHA_512"].includes(info.algorithm) ? info.algorithm : "SHA_256",
       onboard: clean({ commonNamePattern: info.cnPattern || "$(USERNAME)", certificateType: "CLIENT", notAfterType: v.type, notAfterValue: v.value, notBeforeType: nb.type, notBeforeValue: nb.value,

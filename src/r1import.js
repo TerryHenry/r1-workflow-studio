@@ -131,7 +131,7 @@ async function importCertTemplate(client, id) {
   let validityType = o.notAfterType, validityValue = o.notAfterValue;
   if (validityType === "SPECIFIED_DATE") { warnings.push(`This template ends on a fixed date (${o.notAfterDate}). The editor sets a duration instead: 1 year is filled in, change it if needed.`); validityType = "YEARS"; validityValue = 1; }
   let startType = o.notBeforeType, startValue = o.notBeforeValue;
-  if (startType === "SPECIFIED_DATE") { warnings.push(`This template starts on a fixed date (${o.notBeforeDate}). The copy starts now.`); startType = "DAYS"; startValue = 0; }
+  if (startType === "SPECIFIED_DATE") { warnings.push(`This template starts on a fixed date (${o.notBeforeDate}). The copy starts 1 day before it is issued (RUCKUS One needs more than 0).`); startType = "DAYS"; startValue = 1; }
   if (t.caType && t.caType !== "ONBOARD") warnings.push(`This template uses the ${t.caType} certificate source, which the editor can't copy. Only onboard templates are supported.`);
   return {
     template: {

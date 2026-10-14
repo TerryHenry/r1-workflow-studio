@@ -300,7 +300,7 @@ test("server: import routes are read-only and template apply is gated by a previ
     const w = await s.post("/api/import/workflow", { id: "w1" });
     assert.equal(w.status, 200); assert.equal(w.json().workflow.name, "Orig (copy)");
     assert.equal((await s.post("/api/import/workflow", { id: "../etc" })).status, 400);
-    const tpl = { kind: "certTemplate", name: "Brand new tpl", description: "", caId: "ca-1", commonNamePattern: "$(USERNAME)", emailPattern: "", validityType: "YEARS", validityValue: 1, startType: "DAYS", startValue: 0, organization: "", organizationUnit: "", locality: "", state: "", country: "", algorithm: "SHA_256", keyLength: 2048 };
+    const tpl = { kind: "certTemplate", name: "Brand new tpl", description: "", caId: "ca-1", commonNamePattern: "$(USERNAME)", emailPattern: "", validityType: "YEARS", validityValue: 1, startType: "DAYS", startValue: 1, organization: "", organizationUnit: "", locality: "", state: "", country: "", algorithm: "SHA_256", keyLength: 2048 };
     assert.equal((await s.post("/api/template/apply", { template: tpl, options: {}, hash: "x" })).status, 409);
     const pv = (await s.post("/api/template/preview", { template: tpl, options: {} })).json();
     assert.deepEqual(pv.issues, []);
@@ -691,4 +691,37 @@ test("undo: an entry made through another connection is listed but not deleted f
     assert.deepEqual(calls, ["DELETE /workflows/1"]); assert.equal(r.deleted.length, 1);
     assert.deepEqual(undo.list(root, "Tenant B").items.map((x) => x.name), ["W2"], "the other connection's entry is kept");
   });
+});
+
+test("certificate templates never send a start of 0: RUCKUS One needs notBeforeValue above 0 (seen live on the 'Computers vs phones' sample)", async () => {
+  const { validateTemplate, blankTemplate } = require("../src/model");
+  const zero = validateTemplate({ ...blankTemplate(), name: "T", caId: "ca-1", startValue: 0 }, { cas: [{ id: "ca-1" }] }, {});
+  assert.ok(zero.some((i) => /Starts this long before issue must be a number from 1/.test(i.message)), "a 0 is caught before it reaches RUCKUS One");
+  assert.equal(blankTemplate().startValue, 1);
+  // the sample, end to end: pick the CA, preview, apply, and look at what was sent
+  const { samples } = require("../src/samples");
+  const s = await start();
+  try {
+    const wf = JSON.parse(JSON.stringify(samples().find((x) => x.id === "by-device").workflow));
+    const cert = wf.steps[1].options[0].steps[0]; assert.equal(cert.type, "CERT_TEMPLATE");
+    assert.equal(cert.params.startValue, 1, "the step's default start is 1");
+    cert.params.caId = "ca-1";
+    const pv = (await s.post("/api/preview", { workflow: wf, options: {} })).json();
+    assert.deepEqual(pv.issues.filter((i) => i.level === "error"), []);
+    assert.equal((await s.post("/api/apply", { workflow: wf, options: {}, hash: pv.hash })).status, 200);
+    const posts = s.fake.calls.filter((c) => c.method === "POST" && /\/certificateAuthorities\/ca-1\/templates$/.test(c.path));
+    assert.equal(posts.length, 1); assert.ok(posts[0].body.onboard.notBeforeValue >= 1, "sent " + posts[0].body.onboard.notBeforeValue);
+    assert.equal(posts[0].body.onboard.notBeforeType, "DAYS");
+    // a step saved earlier with the old default (0) or no start at all is sent as 1 too
+    const old = JSON.parse(JSON.stringify(wf)); old.name = "Old default"; old.steps[1].options[0].steps[0].params.startValue = 0; old.steps[1].options[0].steps[0].params.newName = "Old tpl";
+    const model = require("../src/model"); const bw = model.toBuildWorkflow(old, { cas: [{ id: "ca-1", name: "x" }], certTemplates: [], dpskPools: [], identityGroups: [], macPools: [], networks: [], workflows: [] });
+    const info = JSON.stringify(bw); assert.ok(!/"value":0/.test(info.match(/"notBefore":\{[^}]*\}/)[0]), "converted to 1: " + info.match(/"notBefore":\{[^}]*\}/)[0]);
+  } finally { await s.close(); }
+  // a Cloudpath template with a start of 0 (or none) and a fixed-date R1 template both become 'a day before'
+  const { Builder, makeApi } = require("../src/build"); const { fakeR1 } = require("./fake-r1");
+  const f = fakeR1({ existing: { cas: [{ id: "ca-1", name: "Example CA" }] } });
+  const b = new Builder({ api: makeApi({ client: f.client, apply: true, log() {} }), crawl: { objects: {} }, mapping: {}, opts: { createMissing: true, pollMs: 0 }, log() {} });
+  await b.certTemplate({ template: "Zero start", info: { caId: "ca-1", issuingCa: "Example CA", cnPattern: "$(USERNAME)", validity: { type: "DAYS", value: 30 }, notBefore: { type: "DAYS", value: 0 } } });
+  const call = f.calls.find((c) => c.method === "POST" && /\/certificateAuthorities\/ca-1\/templates$/.test(c.path));
+  assert.ok(call, "the template was created"); assert.equal(call.body.onboard.notBeforeValue, 1, "a Cloudpath start of 0 becomes 1");
 });
