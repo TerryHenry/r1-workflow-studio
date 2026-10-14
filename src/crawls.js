@@ -9,7 +9,7 @@ const bad = (message) => { const e = new Error(message); e.status = 400; return 
 function validateCrawl(j) {
   if (!j || typeof j !== "object" || Array.isArray(j)) throw bad("That isn't a Cloudpath crawl (not a JSON object).");
   if (!Array.isArray(j.workflows)) throw bad("That isn't a Cloudpath crawl: it has no list of workflows.");
-  if (j.workflows.length > 300) throw bad("That crawl has more than 300 workflows.");
+  if (j.workflows.length > 5000) throw bad("That crawl has more than 5000 workflows.");
   for (const w of j.workflows) if (!w || typeof w.name !== "string" || !Array.isArray(w.steps || [])) throw bad("That crawl has a workflow without a name or steps.");
   return j;
 }

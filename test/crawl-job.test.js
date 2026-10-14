@@ -118,3 +118,19 @@ test("a sign-in that sends us to another address is refused, and an unreachable 
     await new Promise((r) => evil.close(r));
   } finally { await ed.close(); }
 });
+
+test("a big instance (more than 300 workflows) is read and saved whole", async () => {
+  const cp = await fake.create({ workflows: 350 }), ed = await editor();
+  try {
+    await ed.post("/api/connections/cloudpath/crawl", { url: cp.origin, username: cp.USER, password: cp.PASS });
+    const c = await ed.finished(60000);
+    assert.equal(c.job.state, "done", JSON.stringify(c.job));
+    assert.equal(c.active.workflows, 350); assert.equal(c.active.listed, 350);
+    const state = (await ed.call("GET", "/api/state")).json();
+    assert.equal(state.cloudpath.filter((w) => w.kind !== "guestNetwork").length, 350, "every workflow reaches the editor's list");
+    assert.ok(cp.log.gets.filter((g) => /_p_=\d/.test(g) && /viewAllWorkflows/.test(g)).length >= 4, "all four pages of the list were read");
+    // a crawl that cannot be saved says so, instead of vanishing quietly
+    const { validateCrawl } = require("../src/crawls");
+    assert.throws(() => validateCrawl({ workflows: Array.from({ length: 5001 }, (_, i) => ({ name: "w" + i, steps: [] })) }), /more than 5000/);
+  } finally { await ed.close(); await cp.close(); }
+});

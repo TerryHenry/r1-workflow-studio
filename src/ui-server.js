@@ -303,7 +303,7 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
         const ok = arm && arm.until > Date.now() && given.length === arm.code.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(arm.code));
         if (!ok) return fail(403, "Not waiting for a crawl. In the editor choose Connections, then Read a Cloudpath instance.");
         const chunks = []; let size = 0;
-        for await (const c of req) { size += c.length; if (size > 12e6) return fail(413, "Too large"); chunks.push(c); }
+        for await (const c of req) { size += c.length; if (size > 80e6) return fail(413, "Too large"); chunks.push(c); }
         let j; try { j = JSON.parse(Buffer.concat(chunks).toString("utf8")); crawls.validateCrawl(j); } catch (e) { return fail(400, e.message); }
         arm = null; setCrawl(j);
         res.writeHead(200, { ...cors, "content-type": "application/json" }); return res.end(JSON.stringify({ ok: true, workflows: j.workflows.length }));
@@ -321,7 +321,8 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
       let body = {};
       if (req.method !== "GET") {
         const chunks = []; let size = 0;
-        for await (const c of req) { size += c.length; if (size > 12e6) throw httpError(413, "Too large"); chunks.push(c); }
+        const cap = /^\/api\/connections\/cloudpath\/load$/.test(url.pathname) ? 80e6 : 12e6;          // a crawl of hundreds of workflows is tens of MB
+        for await (const c of req) { size += c.length; if (size > cap) throw httpError(413, "Too large"); chunks.push(c); }
         try { body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"); } catch { throw httpError(400, "Bad JSON"); }
       }
       send(200, await handler(body, req));

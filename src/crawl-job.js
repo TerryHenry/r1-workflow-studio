@@ -24,7 +24,8 @@ function startCrawlJob({ url, username, password, filter, limit, parallel, fetch
         options: { filter, limit, parallel }, stopped: () => job.stopRequested,
         progress: (p) => { Object.assign(job, { done: p.done, total: p.total, name: p.name || "", listed: p.listed == null ? job.listed : p.listed, secondsLeft: p.secondsLeft == null ? null : p.secondsLeft }); },
       });
-      await onDone(result);
+      try { await onDone(result); }
+      catch (e) { throw new Error("Read " + result.workflows.length + " workflows, but could not save the result: " + String((e && e.message) || e)); }
       final = { state: result.stopped ? "stopped" : "done", message: (result.stopped ? "Stopped: kept the " : "Read ") + result.workflows.length + " workflow" + (result.workflows.length === 1 ? "" : "s") + "." };
     } catch (e) {
       final = { state: "failed", message: String((e && e.message) || e).slice(0, 400) };

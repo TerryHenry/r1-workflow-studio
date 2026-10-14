@@ -959,7 +959,7 @@ async function saveDraft() {
 }
 async function openFile(file) {
   if (!file) return;
-  if (file.size > 11e6) { alert("That file is too big."); return; }
+  if (file.size > 78e6) { alert("That file is too big."); return; }
   try {
     const text = await file.text();
     // A crawl.json from the Cloudpath crawler (not one of this tool's workflow files): read it as the Cloudpath crawl.
@@ -1049,7 +1049,7 @@ function useCrawl(file) { return connAct("/api/connections/cloudpath/use", { fil
 function delCrawl(file) { if (!confirm("Delete the saved crawl “" + file + "”? You can read the instance again later.")) return; return connAct("/api/connections/cloudpath/delete", { file }); }
 async function loadCrawlFile(file) {
   if (!file) return;
-  if (file.size > 11e6) { CV.msg = { bad: true, text: "That file is too big." }; return drawConnections(); }
+  if (file.size > 78e6) { CV.msg = { bad: true, text: "That file is too big." }; return drawConnections(); }
   const text = await file.text();
   return connAct("/api/connections/cloudpath/load", { text }, "POST", async () => { await reloadAfter("cp"); CV.msg = { text: "Loaded " + C.cloudpath.active.workflows + " workflows from " + C.cloudpath.active.source + "." }; });
 }
