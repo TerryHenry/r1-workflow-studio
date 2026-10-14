@@ -63,13 +63,31 @@ const ACTIONS = {
     fields: [f("networkId", "Network", "ref", { ref: "networks", required: true }), f("identityGroupId", "Identity group", "ref", { ref: "identityGroups", required: true })] },
   CAPTIVE_PORTAL: { label: "Captive portal redirect", category: "onboard", help: "Sends the visitor on to a web address.", defaults: {},
     fields: [f("redirectUrl", "Redirect address", "text", { required: true })] },
-  LDAP_AUTH_PROVIDER: { label: "Sign in with a directory (LDAP)", category: "auth", help: "Checks credentials against a directory server profile.", defaults: {},
-    fields: [f("directoryServerProfileId", "Directory server profile id", "text", { required: true })] },
-  IDP_AUTH_PROVIDER: { label: "Sign in with SSO (SAML)", category: "auth", help: "Checks credentials against an identity provider.", defaults: {},
-    fields: [f("samlIdpProfileId", "Identity provider profile id", "text", { required: true })] },
+  LDAP_AUTH_PROVIDER: { label: "Sign in with a directory (LDAP)", category: "auth", help: "Checks credentials against a directory server profile.", defaults: { mode: "existing", type: "AD", port: 389, tlsEnabled: false },
+    fields: [f("mode", "Directory server", "mode", { choices: [["existing", "Use an existing profile"], ["new", "Create a new profile"]] }),
+      f("directoryServerProfileId", "Directory server profile", "ref", { ref: "directoryServers", showIf: { mode: "existing" }, required: true }),
+      f("newName", "New profile name", "text", { max: 32, showIf: { mode: "new" }, required: true }),
+      f("type", "Directory type", "select", { choices: [["AD", "Active Directory"], ["LDAP", "LDAP"]], showIf: { mode: "new" } }),
+      f("host", "Server address", "text", { showIf: { mode: "new" }, required: true, help: "Host name or IP address." }),
+      f("port", "Port", "number", { min: 1, max: 65535, showIf: { mode: "new" }, help: "389 for LDAP, 636 for LDAPS." }),
+      f("tlsEnabled", "Use TLS", "bool", { showIf: { mode: "new" } }),
+      f("domainName", "Domain name (or base DN)", "text", { showIf: { mode: "new" }, required: true }),
+      f("adminDomainName", "Admin account (admin DN)", "text", { showIf: { mode: "new" }, required: true }),
+      f("adminPassword", "Admin password", "password", { showIf: { mode: "new" }, required: true, help: "Sent to RUCKUS One when you create it. It is never saved in drafts, exported files or logs, so type it again after reopening." })] },
+  IDP_AUTH_PROVIDER: { label: "Sign in with SSO (SAML)", category: "auth", help: "Checks credentials against an identity provider.", defaults: { mode: "existing" },
+    fields: [f("mode", "Identity provider", "mode", { choices: [["existing", "Use an existing provider"], ["new", "Create a new provider"]] }),
+      f("samlIdpProfileId", "Identity provider", "ref", { ref: "samlProviders", showIf: { mode: "existing" }, required: true }),
+      f("newName", "New provider name", "text", { max: 100, showIf: { mode: "new" }, required: true }),
+      f("metadataUrl", "Metadata address (URL)", "text", { showIf: { mode: "new" }, required: true, help: "Where your identity provider publishes its SAML metadata." })] },
 };
 // Cloudpath steps with no R1 equivalent stay in the model as a placeholder until the user replaces or deletes them.
 const PLACEHOLDER = "UNSUPPORTED";
+// Step settings that must never reach a draft, an exported file or a log.
+const SECRET_PARAMS = ["adminPassword"];
+function stripSecrets(wf) {
+  (function walk(nodes) { for (const n of nodes || []) { for (const k of SECRET_PARAMS) if (n.params) delete n.params[k]; for (const o of n.options || []) walk(o.steps); } })(wf && wf.steps);
+  return wf;
+}
 // Steps whose R1 object the editor can create (the others, like a passphrase's network, must be chosen).
 const CREATABLE = { DPSK: { list: "dpskPools", key: "dpskPoolId" }, MAC_REG: { list: "macPools", key: "macRegListId" }, CERT_TEMPLATE: { list: "certTemplates", key: "certTemplateId" } };
 const ONBOARD = new Set(["DPSK", "MAC_REG", "CERT_TEMPLATE", "PASSPHRASE", "CAPTIVE_PORTAL"]);
@@ -483,6 +501,17 @@ function validate(wf, inv = {}, opts = {}) {
         if (find(inv.certTemplates, n.params.newName)) add("error", `"${n.name}": a certificate template named "${n.params.newName}" already exists: choose it instead.`, n.id);
         newTpls.add(lc(n.params.newName));
       }
+      if (n.type === "LDAP_AUTH_PROVIDER" && n.params.mode === "new") {
+        const p = n.params, nm = String(p.newName || "");
+        if (nm && (nm.length < 2 || nm.length > 32)) add("error", `"${n.name}": the profile name must be 2 to 32 characters.`, n.id);
+        if (nm && find(inv.directoryServers, nm)) add("error", `"${n.name}": a directory server profile named "${nm}" already exists: choose it instead of creating it.`, n.id);
+        if (p.port != null && p.port !== "" && !(Number(p.port) >= 1 && Number(p.port) <= 65535)) add("error", `"${n.name}": the port must be from 1 to 65535.`, n.id);
+      }
+      if (n.type === "IDP_AUTH_PROVIDER" && n.params.mode === "new") {
+        const p = n.params;
+        if (p.newName && find(inv.samlProviders, p.newName)) add("error", `"${n.name}": an identity provider named "${p.newName}" already exists: choose it instead.`, n.id);
+        if (p.metadataUrl && !/^https?:\/\//i.test(String(p.metadataUrl))) add("error", `"${n.name}": the metadata address must start with http:// or https://.`, n.id);
+      }
       if (n.type === "MAC_REG" && n.params.mode === "new" && n.params.newName) {
         if (find(inv.macPools, n.params.newName)) add("error", `"${n.name}": a MAC list named "${n.params.newName}" already exists: choose it instead.`, n.id);
         newLists.add(lc(n.params.newName));
@@ -605,8 +634,16 @@ function toBuildNodes(steps, inv = {}) {
       }
       case "PASSPHRASE": r1 = { actionType: "PASSPHRASE", name, networkId: p.networkId, identityGroupId: p.identityGroupId }; break;
       case "CAPTIVE_PORTAL": r1 = { actionType: "CAPTIVE_PORTAL", name, redirectUrl: p.redirectUrl }; break;
-      case "LDAP_AUTH_PROVIDER": r1 = { actionType: "LDAP_AUTH_PROVIDER", name, directoryServerProfileId: p.directoryServerProfileId }; break;
-      case "IDP_AUTH_PROVIDER": r1 = { actionType: "IDP_AUTH_PROVIDER", name, samlIdpProfileId: p.samlIdpProfileId }; break;
+      case "LDAP_AUTH_PROVIDER":
+        r1 = { actionType: "LDAP_AUTH_PROVIDER", name };
+        if (p.mode === "new") ref = { directory: { name: p.newName, type: p.type || "AD", host: p.host, port: Number(p.port) || 389, tlsEnabled: !!p.tlsEnabled, domainName: p.domainName, adminDomainName: p.adminDomainName, adminPassword: p.adminPassword } };
+        else r1.directoryServerProfileId = p.directoryServerProfileId;
+        break;
+      case "IDP_AUTH_PROVIDER":
+        r1 = { actionType: "IDP_AUTH_PROVIDER", name };
+        if (p.mode === "new") ref = { saml: { name: p.newName, metadataUrl: p.metadataUrl } };
+        else r1.samlIdpProfileId = p.samlIdpProfileId;
+        break;
       default: throw new Error("Cannot build a step of type " + n.type);
     }
     const node = { support: "auto", cloudpath: { name: n.name, label: n.name, kind: "editor" }, needs: [], notes: [], r1: stripEmpty(r1), ref };
@@ -641,4 +678,4 @@ function sniffImage(buf) {
   if (head.startsWith("<svg") || (head.startsWith("<?xml") && head.includes("<svg"))) return "image/svg+xml";
   return null;
 }
-module.exports = { GUEST_KINDS, voucherOnly, guestNameFor, freeName, ruleToConditions, regexToComparison, lookFromCloudpath, LOGIC_FIELDS, LOGIC_OPS, newCondition, guestFromPlan, sniffImage, LOOK_COLORS, DEFAULT_LOOK, validateLook, lookParts, GUEST_FIELDS, GUEST_TYPES, blankGuestNetwork, validateGuestNetwork, guestNetworkBody, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, createMissing, ACTIONS, PLACEHOLDER, ONBOARD, newNode, newOption, blankWorkflow, fromPlan, validate, toBuildWorkflow, toBuildNodes, outline, everyBranchOnboards, visible, uid };
+module.exports = { SECRET_PARAMS, stripSecrets, GUEST_KINDS, voucherOnly, guestNameFor, freeName, ruleToConditions, regexToComparison, lookFromCloudpath, LOGIC_FIELDS, LOGIC_OPS, newCondition, guestFromPlan, sniffImage, LOOK_COLORS, DEFAULT_LOOK, validateLook, lookParts, GUEST_FIELDS, GUEST_TYPES, blankGuestNetwork, validateGuestNetwork, guestNetworkBody, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, createMissing, ACTIONS, PLACEHOLDER, ONBOARD, newNode, newOption, blankWorkflow, fromPlan, validate, toBuildWorkflow, toBuildNodes, outline, everyBranchOnboards, visible, uid };

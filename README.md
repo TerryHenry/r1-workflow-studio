@@ -87,7 +87,7 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
   deletes the selected step, `↑ ↓` select the previous/next step, `Esc` deselects.
 - **Configure every step** in the right-hand **Step** tab: AUP text, prompts, messages, choices and their options, a DPSK pool
   (pick an existing one or create one with format, length, device limit and its SSIDs), a MAC list, a certificate template
-  (existing, or new: authority, CN pattern, validity, organization), passphrase, captive portal, LDAP/SSO. Dropdowns are filled
+  (existing, or new: authority, CN pattern, validity, organization), passphrase, captive portal, LDAP/SSO (choose an existing directory server / identity provider profile, or create one; the directory admin password is never saved in drafts, exports or logs). Dropdowns are filled
   from your tenant. The **Problems** tab lists everything wrong (missing fields, text over R1's limits, duplicate names, no
   onboarding step in a path...); the same problems show on the cards, and errors block applying. For a step whose DPSK pool, MAC
   list or certificate template is missing or not chosen, **Create if missing** (or **Create all missing objects**), in the Problems tab and in the Preview tab's "Fix these first" list (which previews again by itself), picks the R1 object
@@ -104,7 +104,7 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
   private keys are never read into the page. `--offline` previews without a RUCKUS One connection (apply is disabled).
 - **Samples** (left list): three ready-made workflows to look at, click through with Try it, and edit: school student / teacher / guest
   (LDAP sign-in, a DPSK pool each, one-day guest passphrase, custom look), employee (LDAP) or guest (DPSK), and computers vs phones
-  (a logical split by device type: Desktop gets a certificate, Mobile gets a passphrase). They open as editable copies. Only an LDAP directory profile id and a certificate authority
+  (a logical split by device type: Desktop gets a certificate, Mobile gets a passphrase). They open as editable copies. Only an LDAP directory profile and a certificate authority
   are left for you to fill in. Defined in `src/samples.js`.
 - **Export file / Open a file…**: save whatever is open (a workflow, certificate template or guest network) to a `.json` file, and open it
   again later, on another computer, or after sending it to someone. Dropping a file on the page opens it too. A file is never trusted:

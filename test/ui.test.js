@@ -725,3 +725,36 @@ test("certificate templates never send a start of 0: RUCKUS One needs notBeforeV
   const call = f.calls.find((c) => c.method === "POST" && /\/certificateAuthorities\/ca-1\/templates$/.test(c.path));
   assert.ok(call, "the template was created"); assert.equal(call.body.onboard.notBeforeValue, 1, "a Cloudpath start of 0 becomes 1");
 });
+
+test("LDAP step: choose an existing directory server profile or create one; the admin password never reaches drafts, exports or logs", async () => {
+  const s = await start({ existing: { dirs: [{ id: "d1", name: "Corp AD", host: "ad.example.com", port: 636, type: "AD" }], saml: [{ id: "s1", name: "Corp SSO" }] } });
+  try {
+    const state = (await s.call("GET", "/api/state", undefined, { "x-ui-token": s.server.token })).json();
+    assert.deepEqual(state.inventory.directoryServers.map((d) => d.name), ["Corp AD"]);
+    assert.deepEqual(state.inventory.samlProviders.map((d) => d.name), ["Corp SSO"]);
+    const tpl = () => { const c = newNode("CERT_TEMPLATE"); c.params.certTemplateId = "t1"; return c; };
+    // existing: just the id
+    const a = newNode("LDAP_AUTH_PROVIDER"); a.params.directoryServerProfileId = "d1";
+    let r = (await s.post("/api/preview", { workflow: { name: "Dir existing", steps: [a, tpl()] }, options: {} })).json();
+    assert.deepEqual(r.issues.filter((i) => i.level === "error"), []);
+    // new: needs its details, and a name that is not taken
+    const n = newNode("LDAP_AUTH_PROVIDER"); n.params.mode = "new"; n.params.newName = "Corp AD";
+    assert.ok(validate({ name: "x", steps: [n] }, { directoryServers: [{ id: "d1", name: "Corp AD" }] }).some((i) => /already exists/.test(i.message)));
+    Object.assign(n.params, { newName: "Branch LDAP", type: "LDAP", host: "ldap.example.com", port: 636, tlsEnabled: true, domainName: "dc=example,dc=com", adminDomainName: "cn=admin,dc=example,dc=com", adminPassword: "s3cret-pw" });
+    const wf = { name: "Dir new", steps: [n, tpl()] };
+    const pv = (await s.post("/api/preview", { workflow: wf, options: {} })).json();
+    assert.deepEqual(pv.issues.filter((i) => i.level === "error"), []);
+    assert.ok(!JSON.stringify(pv).includes("s3cret-pw"), "not in the preview");
+    const ap = await s.post("/api/apply", { workflow: wf, options: {}, hash: pv.hash });
+    assert.equal(ap.status, 200); assert.ok(!ap.text.includes("s3cret-pw"), "not in the apply result");
+    const post = s.fake.calls.find((c) => c.method === "POST" && c.path === "/directoryServerProfiles");
+    assert.equal(post.body.adminPassword, "s3cret-pw"); assert.equal(post.body.host, "ldap.example.com");
+    const act = s.fake.calls.find((c) => c.body && c.body.actionType === "LDAP_AUTH_PROVIDER");
+    assert.ok(/^dir-/.test(act.body.directoryServerProfileId), "the new profile's id is used by the step");
+    // drafts and exports drop the password
+    await s.call("PUT", "/api/drafts", { name: "pw", workflow: wf }, { "x-ui-token": s.server.token });
+    const saved = fs.readFileSync(path.join(s.root, "data", "drafts", "pw.json"), "utf8");
+    assert.ok(!saved.includes("s3cret-pw") && saved.includes("Branch LDAP"));
+    assert.ok(!require("../src/exchange").exportFile(wf).text.includes("s3cret-pw"));
+  } finally { await s.close(); }
+});

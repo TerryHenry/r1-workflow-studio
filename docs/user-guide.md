@@ -98,7 +98,7 @@ This sample asks visitors who they are. Students and teachers sign in with the s
 | **Issue a certificate** | Installs a client certificate from a certificate template. |
 | **Give the network's passphrase** | Hands out a network's shared (PSK) passphrase. |
 | **Captive portal redirect** | Sends the visitor on to a web address. |
-| **Sign in with a directory (LDAP)** | Checks credentials against a directory server profile. |
+| **Sign in with a directory (LDAP)** | Checks credentials against a directory server profile. Pick one that already exists in RUCKUS One, or choose **Create a new profile** and fill in its server address, port, domain and admin account. The admin password is sent to RUCKUS One but never saved in drafts, exported files or logs, so type it again after reopening a draft. |
 | **Sign in with SSO (SAML)** | Checks credentials against an identity provider. |
 
 ### The rules RUCKUS One enforces (the Problems tab checks them for you)
@@ -239,7 +239,7 @@ A box filters the list when there are many. Each entry says **ready** or **N to 
 The Problems tab says exactly what to do. For a credentials step it says which user source it used:
 
 - **Cloudpath's internal (Onboard) user database** is designed for **testing only and should not be used in production**. RUCKUS One has nothing like it: move those users to a real directory and use an LDAP sign-in step.
-- **A directory (Active Directory, LDAP)** can be replaced by an LDAP sign-in step, using a directory server profile you set up in RUCKUS One.
+- **A directory (Active Directory, LDAP)** can be replaced by an LDAP sign-in step, choosing (or creating) the directory server profile right in the step. **Sign in with SSO (SAML)** works the same way: choose an identity provider or create one from its metadata address.
 
 Where a step needs a RUCKUS One object (a DPSK pool, a MAC list, a certificate template), the Problems tab offers **Create if missing**: it picks the existing object with that name, otherwise sets the step up to create it.
 

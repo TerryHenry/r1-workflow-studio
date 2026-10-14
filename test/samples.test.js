@@ -7,7 +7,7 @@ const { samples } = require("../src/samples");
 const inv = { dpskPools: [], macPools: [], certTemplates: [], cas: [], networks: [], workflows: [], identityGroups: [] };
 
 test("samples: only the things the user must supply are flagged", () => {
-  const allowed = /Directory server profile id|certificate authority/i;
+  const allowed = /Directory server profile is required|certificate authority/i;
   for (const s of samples()) {
     const errs = m.validate(s.workflow, inv).filter((i) => i.level === "error");
     assert.ok(errs.every((e) => allowed.test(e.message)), s.name + ": " + errs.map((e) => e.message).join("; "));

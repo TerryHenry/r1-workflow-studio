@@ -10,7 +10,7 @@ const note = (n, text) => { n.source = { notes: [text] }; return n; };
 function dpsk(name, pool, ssid, extra = {}) {
   return node("DPSK", name, { mode: "new", newName: pool, passphraseFormat: "KEYBOARD_FRIENDLY", passphraseLength: 10, ssids: ssid ? [{ ssid }] : [], qrCodeDisplay: true, ...extra });
 }
-const ldap = (name) => note(node("LDAP_AUTH_PROVIDER", name, { directoryServerProfileId: "" }), "Enter the id of your directory server (LDAP) profile from RUCKUS One. It can't be filled in for you.");
+const ldap = (name) => note(node("LDAP_AUTH_PROVIDER", name, { directoryServerProfileId: "" }), "Choose your directory server (LDAP) profile from RUCKUS One, or switch to \"Create a new profile\" and fill in its details. It can't be filled in for you.");
 
 function school() {
   const wf = {

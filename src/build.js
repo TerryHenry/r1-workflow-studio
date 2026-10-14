@@ -32,7 +32,7 @@ function makeApi({ client, apply, log = console.log }) {
     apply: !!apply,
     read: (m, p, b) => (client ? client.call(m, p, b) : Promise.reject(new Error("no R1 client"))),
     async write(m, p, b) {
-      log((apply ? "" : "[dry] ") + m + " " + p + (b ? " " + JSON.stringify(b).slice(0, 200) : ""));
+      log((apply ? "" : "[dry] ") + m + " " + p + (b ? " " + JSON.stringify(b, (k, v) => (/password/i.test(k) ? "[hidden]" : v)).slice(0, 200) : ""));
       if (!apply) return { id: "dry-" + ++n };
       return client.call(m, p, b);
     },
@@ -192,6 +192,32 @@ class Builder {
     return (this.made["tpl:" + lc(name)] = { certTemplateId: id, identityGroupId: groupId });
   }
 
+  async directoryServer(d) {
+    const found = this.existing(d.name, await this.list("dirs", async () => rows(await this.api.read("POST", "/directoryServerProfiles/query", {}))));
+    if (found) { this.reused.push("directory server profile " + d.name); return found.id; }
+    this.announce("directory server profile", d.name);
+    const made = await this.api.write("POST", "/directoryServerProfiles", clean({ name: d.name, type: d.type, host: d.host, port: d.port, tlsEnabled: d.tlsEnabled, domainName: d.domainName, adminDomainName: d.adminDomainName, adminPassword: d.adminPassword }));
+    let id = idOf(made);
+    if (this.api.apply) {
+      if (!id) id = (await this.pollFor(async () => this.existing(d.name, rows(await this.api.read("POST", "/directoryServerProfiles/query", {}))), "directory server profile " + d.name)).id;
+      this.record("directory server profile", id, d.name, `/directoryServerProfiles/${id}`);
+    }
+    return id;
+  }
+
+  async samlProvider(s) {
+    const found = this.existing(s.name, await this.list("saml", async () => rows(await this.api.read("POST", "/samlIdpProfiles/query", {}))));
+    if (found) { this.reused.push("identity provider " + s.name); return found.id; }
+    this.announce("identity provider", s.name);
+    const made = await this.api.write("POST", "/samlIdpProfiles", clean({ name: s.name, metadataUrl: s.metadataUrl }));
+    let id = idOf(made);
+    if (this.api.apply) {
+      if (!id) id = (await this.pollFor(async () => this.existing(s.name, rows(await this.api.read("POST", "/samlIdpProfiles/query", {}))), "identity provider " + s.name)).id;
+      this.record("identity provider", id, s.name, `/samlIdpProfiles/${id}`);
+    }
+    return id;
+  }
+
   // ---- actions -------------------------------------------------------------------------------------------------
   async definitions() {
     const defs = await this.list("defs", async () => rows(await this.api.read("POST", "/workflowActionDefinitions/query?page=0&size=100", {})));
@@ -216,6 +242,10 @@ class Builder {
       const t = a.certTemplateId && a.identityGroupId ? a : await this.certTemplate(node.ref || { template: a.name.replace(/^Certificate /, "") });
       if (!t) return { skip: "certificate template not mapped or found (use --create-missing --ca NAME)" };
       Object.assign(body, { certTemplateId: t.certTemplateId, identityGroupId: t.identityGroupId });
+    } else if (a.actionType === "LDAP_AUTH_PROVIDER" && node.ref && node.ref.directory) {
+      body.directoryServerProfileId = await this.directoryServer(node.ref.directory);
+    } else if (a.actionType === "IDP_AUTH_PROVIDER" && node.ref && node.ref.saml) {
+      body.samlIdpProfileId = await this.samlProvider(node.ref.saml);
     } else if (a.actionType === "PASSPHRASE") {
       if (!body.networkId) return { skip: "network must be mapped (it is not created here)" };
     }

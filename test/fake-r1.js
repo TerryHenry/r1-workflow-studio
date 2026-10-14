@@ -1,7 +1,7 @@
 // A fake RUCKUS One for tests: remembers what is created, answers reads, can be told to fail a call.
 function fakeR1({ failOn, existing = {} } = {}) {
   const calls = []; let n = 0;
-  const store = { options: {}, workflows: existing.workflows || [], dpsk: existing.dpsk || [], groups: existing.groups || [], mac: existing.mac || [], nets: existing.nets || [] };
+  const store = { options: {}, workflows: existing.workflows || [], dpsk: existing.dpsk || [], groups: existing.groups || [], mac: existing.mac || [], nets: existing.nets || [], dirs: existing.dirs || [], saml: existing.saml || [] };
   const client = {
     async call(method, p, body) {
       calls.push({ method, path: p, body });
@@ -10,6 +10,9 @@ function fakeR1({ failOn, existing = {} } = {}) {
       if (method === "GET" && p.startsWith("/identityGroups")) return { content: store.groups };
       if (method === "GET" && p.startsWith("/macRegistrationPools")) return { content: store.mac };
       if (method === "POST" && p === "/wifiNetworks/query") return { data: store.nets };
+      if (method === "POST" && p.startsWith("/directoryServerProfiles/query")) return { data: store.dirs };
+      if (method === "POST" && p.startsWith("/samlIdpProfiles/query")) return { data: store.saml };
+      if (method === "POST" && p === "/directoryServerProfiles") { store.dirs.push({ id: "dir-" + ++n, name: body.name }); return { id: "dir-" + n }; }
       if (method === "POST" && p.startsWith("/workflows/query")) return { data: store.workflows };
       if (method === "POST" && p.startsWith("/certificateAuthorities/query")) return { data: existing.cas || [] };
       if (method === "POST" && p.startsWith("/venues/query")) return { data: existing.venues || [] };

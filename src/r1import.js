@@ -18,8 +18,8 @@ const FROM_ACTION = {
   CERT_TEMPLATE: (a) => ({ mode: "existing", certTemplateId: a.certTemplateId }),
   PASSPHRASE: (a) => ({ networkId: a.networkId, identityGroupId: a.identityGroupId }),
   CAPTIVE_PORTAL: (a) => ({ redirectUrl: a.redirectUrl }),
-  LDAP_AUTH_PROVIDER: (a) => ({ directoryServerProfileId: a.directoryServerProfileId }),
-  IDP_AUTH_PROVIDER: (a) => ({ samlIdpProfileId: a.samlIdpProfileId }),
+  LDAP_AUTH_PROVIDER: (a) => ({ mode: "existing", directoryServerProfileId: a.directoryServerProfileId }),
+  IDP_AUTH_PROVIDER: (a) => ({ mode: "existing", samlIdpProfileId: a.samlIdpProfileId }),
 };
 
 const IMAGE_KINDS = { logo: "logoImageFileName", background: "backgroundImageName", icon: "iconImageName" };

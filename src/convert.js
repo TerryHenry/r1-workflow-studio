@@ -170,8 +170,8 @@ function credprompt(step) {
   const who = server ? "“" + trunc(server, 60) + "”" : "the authentication server";
   const notes = internal
     ? ["This step checks usernames and passwords against Cloudpath's internal user database (the “Onboard Database”, here " + who + "). Cloudpath designed that database for testing only: it is not meant to be used in production, and R1 has nothing like it. " +
-       "R1's sign-in steps use an external directory (LDAP) or single sign-on. Move these users into a real directory first, then add an LDAP sign-in step with that directory's profile id."]
-    : ["This step checks usernames and passwords against " + (type ? type : "a directory") + " (" + who + (host ? ", " + host : "") + "). R1 can do that with an LDAP sign-in step (or SSO), using a directory server profile you set up in R1 first: add the step and enter that profile's id."];
+       "R1's sign-in steps use an external directory (LDAP) or single sign-on. Move these users into a real directory first, then add an LDAP sign-in step and choose (or create) that directory's profile."]
+    : ["This step checks usernames and passwords against " + (type ? type : "a directory") + " (" + who + (host ? ", " + host : "") + "). R1 can do that with an LDAP sign-in step (or SSO), using a directory server profile you set up in R1 first: add the step and choose that profile (or create it there)."];
   return { support: "manual", notes, action: null, ref: { userSource: internal ? "onboard" : "directory", server, serverType: type, host } };
 }
 

@@ -19,7 +19,7 @@ function kindOf(model) { return model && model.kind === "certTemplate" ? "certTe
 
 function exportFile(model, now = new Date()) {
   if (!model || typeof model !== "object") throw bad("Nothing to export.");
-  const data = clone(model);
+  const data = m.stripSecrets(clone(model));
   delete data._issues; delete data._notes;
   const kind = kindOf(model);
   const text = JSON.stringify({ format: FORMAT, version: VERSION, kind, name: str(model.name, 100), exportedAt: now.toISOString(), data }, null, 2);
@@ -44,7 +44,7 @@ function cleanParams(type, params) {
   const allowed = new Set([...Object.keys(spec.defaults || {}), ...(spec.fields || []).map((f) => f.key)]);
   const out = clone(spec.defaults || {});
   for (const [k, v] of Object.entries(params && typeof params === "object" ? params : {})) {
-    if (!allowed.has(k)) continue;
+    if (!allowed.has(k) || m.SECRET_PARAMS.includes(k)) continue;
     if (v === null || ["string", "number", "boolean"].includes(typeof v)) out[k] = typeof v === "string" ? str(v, MAX_TEXT) : v;
     else if (Array.isArray(v) || typeof v === "object") out[k] = JSON.parse(JSON.stringify(v));
   }
@@ -145,7 +145,7 @@ function importFile(text, fileName = "") {
     (function walk(nodes) {
       for (const n of nodes) {
         const p = n.params || {};
-        for (const k of ["dpskPoolId", "macRegListId", "certTemplateId", "directoryServerProfileId", "caId", "networkId", "identityGroupId"]) if (p[k]) refs.push(n.name);
+        for (const k of ["dpskPoolId", "macRegListId", "certTemplateId", "directoryServerProfileId", "samlIdpProfileId", "caId", "networkId", "identityGroupId"]) if (p[k]) refs.push(n.name);
         for (const o of n.options || []) walk(o.steps);
       }
     })(model.steps);

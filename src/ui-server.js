@@ -276,7 +276,7 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
     "PUT /api/drafts": async (b) => {
       if (!NAME.test(b.name || "")) throw httpError(400, "Draft names may use letters, numbers, spaces and . ( ) - _ (up to 80).");
       fs.mkdirSync(draftsDir, { recursive: true });
-      fs.writeFileSync(path.join(draftsDir, b.name + ".json"), JSON.stringify(b.workflow, null, 2), { mode: 0o600 });
+      fs.writeFileSync(path.join(draftsDir, b.name + ".json"), JSON.stringify(require("./model").stripSecrets(JSON.parse(JSON.stringify(b.workflow))), null, 2), { mode: 0o600 });
       return { drafts: listDrafts() };
     },
     "POST /api/drafts/load": async (b) => {

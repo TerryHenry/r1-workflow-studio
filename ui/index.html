@@ -473,6 +473,7 @@ function fieldEl(n, fd) {
     case "number": return h("div", { class: "field" }, label, h("input", { type: "number", min: fd.min, max: fd.max, value: p[fd.key] == null ? "" : p[fd.key], oninput: (e) => set(e.target.value === "" ? undefined : Number(e.target.value)) }));
     case "select": return h("div", { class: "field" }, label, h("select", { onchange: (e) => set(e.target.value) }, fd.choices.map(([v, t]) => h("option", { value: v, selected: v === p[fd.key] }, t))));
     case "mode": return h("div", { class: "field" }, label, h("div", { class: "modes" }, fd.choices.map(([v, t]) => h("label", {}, h("input", { type: "radio", name: "mode_" + n.id, checked: p[fd.key] === v, style: "width:auto", onchange: () => set(v, true) }), t))));
+    case "password": return h("div", { class: "field" }, label, h("input", { type: "password", autocomplete: "new-password", value: p[fd.key] || "", oninput: (e) => set(e.target.value) }), fd.help ? h("div", { class: "hint" }, fd.help) : null);
     case "ref": {
       const list = S.inv[fd.ref] || [];
       return h("div", { class: "field" }, label, h("select", { onchange: (e) => set(e.target.value || undefined, true) }, h("option", { value: "" }, list.length ? "Choose…" : "(none found in R1)"), list.map((x) => h("option", { value: x.id, selected: x.id === p[fd.key] }, x.name + (x.ssid && x.ssid !== x.name ? " (" + x.ssid + ")" : "")))));
