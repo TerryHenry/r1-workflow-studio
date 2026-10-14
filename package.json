@@ -1,6 +1,6 @@
 {
   "name": "r1-workflow-studio",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "R1 Workflow Studio: build RUCKUS One workflows visually, or read Cloudpath workflows and convert them",
   "scripts": {
