@@ -12,7 +12,7 @@ async function startDemo({ port = 47900, cloudpathDelay = 120 } = {}) {
   const root = path.join(__dirname, "..");
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "studio-demo-"));
   const crawl = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "crawl.json"), "utf8"));
-  const names = { personalPassphrase: "Personal passphrase", capPortal: "Captive portal", timedAccess: "Timed access", voucherFlow: "Voucher only", "Policy only": "Policy only" };
+  const names = { personalPassphrase: "Personal passphrase", capPortal: "Captive portal", timedAccess: "Timed access", voucherFlow: "Voucher only" };
   for (const w of crawl.workflows) if (names[w.name]) w.name = names[w.name];
   const r1 = fakeR1({ existing: {
     venues: [{ id: "v1", name: "Main office" }, { id: "v2", name: "Warehouse" }],
