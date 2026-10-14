@@ -65,8 +65,8 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
 - Safety: listens on 127.0.0.1 only, rejects other Host headers, POSTs need the page's token, and certificate authority
   private keys are never read into the page. `--offline` previews without a RUCKUS One connection (apply is disabled).
 - **Samples** (left list): three ready-made workflows to look at, click through with Try it, and edit: school student / teacher / guest
-  (LDAP sign-in, a DPSK pool each, one-day guest passphrase, custom look), employee (LDAP) or guest (DPSK), and computers vs phones/tablets (logical split)
-  laptops (logical split by device type). They open as editable copies. Only an LDAP directory profile id and a certificate authority
+  (LDAP sign-in, a DPSK pool each, one-day guest passphrase, custom look), employee (LDAP) or guest (DPSK), and computers vs phones
+  (a logical split by device type: Desktop gets a certificate, Mobile gets a passphrase). They open as editable copies. Only an LDAP directory profile id and a certificate authority
   are left for you to fill in. Defined in `src/samples.js`.
 
 ## Step mapping
