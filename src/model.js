@@ -357,7 +357,7 @@ function fromPlan(planWf, inv, objects) {
         }
       }
       const src = { cloudpathKind: cp.kind, cloudpathName: cp.name || cp.label, notes: n.notes || [], ...(n.ref && n.ref.userSource ? { userSource: n.ref.userSource } : {}) };
-      if (!n.r1 && n.end) continue;                               // "(end)" results: the path ends by itself
+      if (!n.r1 && n.end) { if (cp.kind === "ss" && (n.notes || [])[0]) movedNotes.push(n.notes[0]); continue; }               // "(end)" results: the path ends by itself
       const t = n.r1 && n.r1.actionType;
       let node;
       if (!n.r1 || (n.support === "manual" && t !== "FUNCTIONAL_SPLIT")) {

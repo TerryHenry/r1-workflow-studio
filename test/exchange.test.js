@@ -141,7 +141,8 @@ test("message and form steps convert; redirect, social login and shared passphra
   const dp = by.dataPrompt; assert.equal(dp.support, "auto");
   assert.deepEqual(dp.r1.variables.map((v) => v.type), ["USER_NAME", "EMAIL", "INPUT_FIELD_1", "PHONE"]);
   assert.equal(by["dataPrompt-login"].support, "manual"); assert.ok(by["dataPrompt-login"].notes.some((n) => /password/.test(n)));
-  for (const k of ["redirect", "oauth", "ss"]) { assert.equal(by[k].support, "manual"); assert.ok(!/not known/.test(by[k].notes.join(" ")), k + " has its own explanation"); }
+  for (const k of ["redirect", "oauth"]) { assert.equal(by[k].support, "manual"); assert.ok(!/not known/.test(by[k].notes.join(" ")), k + " has its own explanation"); }
+  assert.equal(by.ss.r1.actionType, "PASSPHRASE", "a shared-passphrase prompt becomes R1's 'Give the network's passphrase'"); assert.equal(by.ss.support, "mapping");
   assert.match(by.redirect.notes[0], /https:\/\/example\.com/); assert.match(by.redirect.notes[0], /ends the session/);
   assert.match(by.mystery.notes[0], /not known/);
   const model = require("../src/model").fromPlan(plan, inv, {});
@@ -268,4 +269,30 @@ test("every step type the converter knows has a row in the chart (none falls bac
   assert.equal(counted, kinds.length);
   const sum = cov.totals.converts + cov.totals.mapping + cov.totals.partial + cov.totals.none; assert.equal(sum, kinds.length);
   assert.equal(convertAll({ workflows: [wf], objects: {} }, {}).workflows[0].steps.filter((s) => /not known/.test((s.notes || []).join(" "))).length, 0);
+});
+
+test("a shared-passphrase prompt becomes 'Give the network's passphrase' where it can stand alone, and is dropped (with a note) where the path already gets access", () => {
+  const { convertAll } = require("../src/convert");
+  const { fromPlan, validate } = require("../src/model");
+  const step = (kind, fields, label = kind) => ({ kind, number: "1", label, links: [], fields });
+  const ss = step("ss", { name: "Crew", sharedSecret: "[removed]" }, "Prompt the user for a shared passphrase.");
+  const netInv = { ...inv, networks: [{ id: "net-9", name: "Crew-WiFi" }], identityGroups: [{ id: "g1", name: "Crew" }] };
+  const out = (cfg) => step("output", { "networkSourceSelection.source": "EXISTING", "networkSourceSelection.existingPk": cfg }, "Move user to " + cfg + ".");
+  const conv = (steps, i = inv) => fromPlan(convertAll({ workflows: [{ pk: 1, name: "SS", steps }], objects: {} }, {}).workflows[0], i, {});
+  // 1. a plain hand-over follows: the prompt is the access step, the hand-over just ends the path, and a same-named R1 network is chosen
+  const a = conv([ss, out("Crew-WiFi")], netInv);
+  assert.deepEqual(a.steps.map((s) => s.type), ["PASSPHRASE"]); assert.equal(a.steps[0].params.networkId, "net-9");
+  assert.ok(validate(a, netInv).every((i) => !/more than one|only one onboarding/.test(i.message)));
+  assert.match(a.steps[0].source.notes[0], /Give the network's passphrase/); assert.match(a.steps[0].source.notes[0], /shared secret was not copied/);
+  assert.deepEqual(validate(a, netInv).filter((i) => i.level === "error").map((i) => i.message.replace(/^.*: /, "")), ["Identity group is required."], "only the identity group is left to choose");
+  // 2. a DPSK, MAC registration or certificate step also gives access: R1 allows one, so the prompt is dropped and the note says so
+  for (const later of [step("dpsk", { accountDpskPoolPk: "P", name: "d" }), step("registration", { name: "L" }), step("output", {}, "Move user to Net and assign certificate using Template.")]) {
+    const b = conv([ss, later]);
+    assert.ok(!b.steps.some((s) => s.type === "PASSPHRASE"), "no second access step after " + later.kind);
+    assert.ok(b.source.notes.some((n) => /R1 allows one access step per path and a later step already gives access/.test(n)));
+    assert.deepEqual(validate(b, inv).filter((i) => /only one onboarding/.test(i.message)), []);
+  }
+  // 3. a redirect follows (not an access step in Cloudpath's sense): the passphrase step stays, the redirect is explained
+  const c = conv([ss, step("redirect", { "workflowEmbeddableRedirect.redirectUrl": "https://example.com" }, "Redirect the user based on X.")]);
+  assert.deepEqual(c.steps.map((s) => s.type), ["PASSPHRASE", "UNSUPPORTED"]);
 });

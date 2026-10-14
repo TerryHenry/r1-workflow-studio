@@ -151,6 +151,7 @@ function output(step, ctx) {
   const net = mapped(ctx.mapping, "networks", config);
   return {
     support: net ? "auto" : "mapping", needs: net ? [] : [need("network", config, "R1 Wi-Fi network the user joins (PASSPHRASE needs a network id and identity group)")],
+    ref: { network: config },
     notes: ["Device configuration '" + config + "' (SSID, security) has no direct R1 workflow equivalent: confirm which action delivers access."],
     action: { actionType: "PASSPHRASE", name: trunc("Access " + config, 100), networkId: net && net.networkId, identityGroupId: net && net.identityGroupId },
   };
@@ -205,6 +206,22 @@ function deviceName(step) {
       displayTitle: true, displayMessageHtml: !!text, variables: [{ label: "Device name", type: "INPUT_FIELD_1" }] } };
 }
 
+// "Prompt the user for a shared passphrase": Cloudpath asks the visitor to type a secret before going on. R1 turns it round: the "Give the network's
+// passphrase" step (PASSPHRASE) hands the visitor a PSK network's shared passphrase. It is an onboarding step, and R1 allows one per path, so
+// when the path already gets the visitor access another way (a DPSK, MAC registration or certificate step comes next, or came before) the prompt is dropped.
+function sharedPassphrase(step, ctx) {
+  const f = step.fields || {}, rest = ctx.rest || [];
+  const gets = (s) => s.kind === "dpsk" || s.kind === "registration" || (s.kind === "output" && /assign certificate using/i.test(s.label || ""));
+  const why = ctx.onboarded ? "an earlier step" : rest.find(gets) ? "a later step" : "";
+  const secret = "Cloudpath's own shared secret was not copied.";
+  if (why) return { support: "auto", end: true, action: null,
+    notes: ["Cloudpath asks the visitor for a shared passphrase here. R1's matching step is “Give the network's passphrase”, which hands the visitor a PSK network's passphrase, but R1 allows one access step per path and " + why + " already gives access. The prompt was dropped. If the visitor should get the network's passphrase instead, replace that step with “Give the network's passphrase”. " + secret] };
+  const out = rest.find((s) => s.kind === "output"), network = out ? val(out.fields, "networkSourceSelection.existingPk") : "";
+  return { support: "mapping", needs: [need("network / identity group", network || "the PSK network", "choose the PSK network whose passphrase visitors get, and its identity group")], ref: { network },
+    notes: ["Cloudpath asks the visitor to type a shared passphrase before going on. In R1 the matching step is “Give the network's passphrase”: it hands the visitor the PSK network's shared passphrase, so choose that network and its identity group. " + secret],
+    action: { actionType: "PASSPHRASE", name: trunc(val(f, "name") || "Network passphrase", 100), networkId: undefined, identityGroupId: undefined } };
+}
+
 // Cloudpath fills ${VARIABLE} / $VARIABLE in message text (e.g. $DPSK); R1 messages are fixed text.
 const VAR = /\$\{[^}]+\}|\$[A-Z][A-Z0-9_]+/g;
 
@@ -250,7 +267,7 @@ const RULES = {
   aup, dpsk, selection, registration, output,
   message, dataPrompt, redirect, otp, req: sponsor, oobreq: sponsor, notification, deviceName,
   oauth: manual("Cloudpath signs the visitor in with a social account (Google, Facebook, LinkedIn or a custom OAuth provider). R1's identity provider step uses a SAML or OIDC provider set up in R1, which is not the same thing: there is no direct equivalent, and the provider keys were not copied."),
-  ss: manual("Cloudpath asks the visitor for a shared passphrase. R1 has no step that checks one. A shared passphrase on a Wi-Fi network is a PSK network (or a DPSK pool for personal ones). The passphrase itself was not copied."),
+  ss: sharedPassphrase,
   oob: manual("The editor converts this automatically to an R1 guest network (a workflow that is only a voucher sign-in opens as one; a voucher branch inside a choice moves out to one). Cloudpath sends a voucher code by email or SMS and the visitor enters it: in R1 terms that is a guest pass. The R1 workflow action list has no guest-pass action (DATA_PROMPT only collects email/phone), so this part moves to an R1 guest network of type GuestPass (passes made by sponsors, the guest API, or bulk import) rather than a workflow step. The AUP becomes the network's terms text, the SMS/email choice becomes the pass delivery methods. See README 'Guest networks'."),
   credprompt,
   concurrent: manual("Cloudpath reminds the user to remove old certificates. R1 has no such step; use DISPLAY_MESSAGE to tell them, or drop it."),
@@ -261,7 +278,7 @@ function convertSteps(steps, ctx) {
   let prev = ctx.prev, onboarded = !!ctx.onboarded;               // onboarded: an earlier step on this path already gives the visitor access (R1 allows one)
   for (const s of steps) {
     const rule = RULES[s.kind] || manual("Step type '" + s.kind + "' is not known to this tool.");
-    const r = rule(s, { ...ctx, prev, onboarded });
+    const r = rule(s, { ...ctx, prev, onboarded, rest: steps.slice(steps.indexOf(s) + 1) });
     if (r.action && ["DPSK", "MAC_REG", "CERT_TEMPLATE", "PASSPHRASE", "CAPTIVE_PORTAL"].includes(r.action.actionType)) onboarded = true;
     const node = { cloudpath: { kind: s.kind, number: s.number, name: val(s.fields, "name"), label: clean(s.label || "") }, support: r.support,
       needs: r.needs || [], notes: r.notes || [], r1: r.action, ref: r.ref };

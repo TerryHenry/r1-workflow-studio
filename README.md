@@ -124,7 +124,8 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
 | deviceName (name the device, device limit) | a form asking for a device name; the device limit has no R1 step (use "Devices per passphrase" on the DPSK pool) | auto, in part |
 | notification (email / SMS) | to the user after a DPSK step: the DPSK step's "Email / Text the passphrase" switches (the step is dropped); to an administrator, or not after a DPSK step: none | auto, in part / manual |
 | message, dataPrompt | Show a message; Prompt for information (a password field can't carry over) | auto |
-| redirect, oauth, ss | none (explained in the step's notes) | manual |
+| ss (prompt for a shared passphrase) | "Give the network's passphrase" (PASSPHRASE): hands the visitor a PSK network's passphrase. Choose the network (a same-named R1 network is picked) and its identity group. Dropped, with a note, where a DPSK, MAC registration or certificate step also gives access (R1 allows one access step per path) | needs network + identity group |
+| redirect, oauth | none (explained in the step's notes) | manual |
 | credprompt, concurrent | none | manual |
 
 R1 specs: https://docs.ruckus.cloud/api (Workflow Management API 0.0.4, Workflow Actions API 0.0.2).
