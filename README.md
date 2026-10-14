@@ -7,8 +7,9 @@ Cloudpath has no workflow export and its REST API does not expose workflow defin
 find), so the crawler reads the admin pages. Written against Cloudpath 6.0.6056; other versions may differ.
 
 ## Use
+1. Easiest: open the editor (`node bin/ui.js`), Connections → Cloudpath, enter the address, email and password. The rest of this list is the manual way.
 1. Sign in to the Cloudpath admin UI in a browser.
-2. Paste `crawl/crawl.browser.js` into that tab's console. It issues GET requests only (workflow list, each
+2. Paste the output of `node bin/crawl-script.js` (the crawler, `crawl/crawl.browser.js` with `crawl/core.js` inlined) into that tab's console. It issues GET requests only (workflow list, each
    step's edit form, each split option's branch) and, with `window.__NO_SEND = true`, keeps the result in
    `window.__crawl`. By default it posts to `node bin/receive.js` on 127.0.0.1:8765, which only works if the
    Cloudpath page's CSP allows it (it did not on cloudpath-lab.example.com); otherwise it downloads `crawl.json`.
@@ -89,11 +90,16 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
     and read once before it replaces the old one, a failed switch changes nothing, and a switch clears every preview so a preview made on
     one tenant can never be applied to another. The Apply dialog and the header name the connection in use. Secrets are stored in
     `data/connections.json` (mode 600) and never sent to the page: it only sees the last four characters of the ids.
-  - *Cloudpath*: the editor never signs in to Cloudpath. A crawl is read in your own browser, as whichever Cloudpath admin user you are
-    signed in as. "Read a Cloudpath instance…" arms a one-time code (15 minutes) and gives you the crawler script to paste into that
-    tab's console; it reports back to the editor by itself (`POST /api/crawl/receive`, accepted only with the code, once). If Cloudpath's
-    security policy blocks that, it downloads `crawl.json`: "Load a crawl file…". Every crawl is kept in `data/crawls/` (named by instance
-    and date), so you can switch back; the active one is also written to `data/crawl.json` for the command-line tools.
+  - *Cloudpath*: type the address, an admin email and the password and press "Read it now". The editor signs in itself, reads the workflows
+    (GET requests only, with a progress bar and a Stop button) and signs out. The password is used for the one sign-in call and is never
+    saved, shown, logged or sent anywhere but that address (https only; redirects to another address are refused). If the account uses single
+    sign-on or a verification code, use "Use a browser console instead…" (it arms a one-time code and gives you the crawler to run in a
+    tab you are signed in to; if Cloudpath's security policy blocks it reporting back, it downloads `crawl.json`, which you drop on the page),
+    or "Load a crawl file…". Every crawl is kept in `data/crawls/` (named by instance and date), so you can switch back; the active one is
+    also written to `data/crawl.json` for the command-line tools. The crawler is `crawl/core.js`, shared by both ways in; the editor parses
+    pages with its own small HTML parser (`src/minidom.js`, no dependencies). On a live instance, results with it were identical to the
+    browser's own parser on 8 varied workflows (63 steps, 86 forms), and reading does not depend on which option Cloudpath had selected for
+    the session (each branch's own form is read from the page where that branch is selected).
     Cloudpath lists are paged (15 rows, at most 100 per page); the crawler follows the pages, so it reads every workflow, and reads only
     the DPSK pools and device configurations that those workflows use. A big instance has hundreds (one test instance has 350, about 2
     seconds each), so the dialog has "only names containing…" and "read at most…" options (also `window.__CRAWL_FILTER`, `__CRAWL_LIMIT`,

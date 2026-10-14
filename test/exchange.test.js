@@ -177,6 +177,7 @@ test("secrets are never kept in a crawl: removed on the way in, from saved files
   assert.equal(f[0].sharedSecretDescription, "Shared"); assert.equal(f[1].custom1AccessTokenEndpoint, "https://x/token"); assert.equal(f[1].prompt2Variable, "Password"); assert.equal(f[1].passwordDescription, "Password");
   const tipped = redact({ workflows: [{ name: "w", steps: [{ kind: "ss", links: [{ text: "Prompt", tooltip: "Shared secret: example-secret\nMore: fine" }] }] }] });
   assert.equal(tipped.crawl.workflows[0].steps[0].links[0].tooltip, "Shared secret: [removed]\nMore: fine"); assert.equal(tipped.removed, 1);
+  const again = redact(tipped.crawl); assert.equal(again.removed, 0, "an already-redacted tooltip is left alone"); assert.equal(again.crawl.workflows[0].steps[0].links[0].tooltip, "Shared secret: [removed]\nMore: fine");
   assert.equal(raw.workflows[0].steps[0].fields.sharedSecret, "example-secret", "works on a copy");
   assert.equal(redact(r.crawl).removed, 0, "idempotent");
   const fs = require("node:fs"), os = require("node:os"), path = require("node:path");

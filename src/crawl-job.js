@@ -15,6 +15,7 @@ function startCrawlJob({ url, username, password, filter, limit, parallel, fetch
   let pass = password;                                    // dropped as soon as the sign-in call has it
   job.stop = () => { job.stopRequested = true; job.message = "Stopping…"; };
   job.done_ = (async () => {
+    let final = null;
     try {
       const { homeText } = await session.login(user, pass); pass = null;
       job.state = "running"; job.message = "Reading…";
@@ -23,12 +24,14 @@ function startCrawlJob({ url, username, password, filter, limit, parallel, fetch
         options: { filter, limit, parallel }, stopped: () => job.stopRequested,
         progress: (p) => { Object.assign(job, { done: p.done, total: p.total, name: p.name || "", listed: p.listed == null ? job.listed : p.listed, secondsLeft: p.secondsLeft == null ? null : p.secondsLeft }); },
       });
-      job.state = result.stopped ? "stopped" : "done"; job.message = (result.stopped ? "Stopped: kept the " : "Read ") + result.workflows.length + " workflow" + (result.workflows.length === 1 ? "" : "s") + ".";
-      job.finishedAt = Date.now();
       await onDone(result);
+      final = { state: result.stopped ? "stopped" : "done", message: (result.stopped ? "Stopped: kept the " : "Read ") + result.workflows.length + " workflow" + (result.workflows.length === 1 ? "" : "s") + "." };
     } catch (e) {
-      pass = null; job.state = "failed"; job.message = String((e && e.message) || e).slice(0, 400); job.finishedAt = Date.now();
-    } finally { pass = null; await session.logout(); }
+      final = { state: "failed", message: String((e && e.message) || e).slice(0, 400) };
+    } finally {
+      pass = null; job.message = "Signing out…"; await session.logout();
+      Object.assign(job, final || { state: "failed", message: "Stopped unexpectedly." }, { finishedAt: Date.now() });     // only now: the page sees "done" after the sign-out
+    }
   })();
   return job;
 }

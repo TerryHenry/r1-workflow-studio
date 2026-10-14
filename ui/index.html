@@ -1025,12 +1025,12 @@ function closeModal() { $("#modal").replaceChildren(); }
 
 
 /* ---------- connections: which RUCKUS One tenant and which Cloudpath instance ---------- */
-let C = null, cpoll = null, CV = { msg: null, arm: null, form: null, testNote: null };
+let C = null, cpoll = null, jpoll = null, CV = { msg: null, arm: null, form: null, testNote: null };
 async function openConnections(focus) {
   try { C = await api("/api/connections"); } catch (e) { alert(e.message); return; }
-  CV = { msg: null, arm: null, form: null, testNote: null, focus };
+  CV = { msg: null, arm: null, form: null, testNote: null, focus, cpUrl: store.get("cpUrl", ""), cpUser: store.get("cpUser", "") };
   drawConnections();
-  if (focus === "cloudpath" && !C.cloudpath.active) armCrawl();
+  const j = C.cloudpath.job; if (j && (j.state === "starting" || j.state === "running")) watchJob();
 }
 function closeConnections() { clearInterval(cpoll); cpoll = null; closeModal(); }
 async function reloadAfter(what) {
@@ -1052,6 +1052,37 @@ async function loadCrawlFile(file) {
   if (file.size > 11e6) { CV.msg = { bad: true, text: "That file is too big." }; return drawConnections(); }
   const text = await file.text();
   return connAct("/api/connections/cloudpath/load", { text }, "POST", async () => { await reloadAfter("cp"); CV.msg = { text: "Loaded " + C.cloudpath.active.workflows + " workflows from " + C.cloudpath.active.source + "." }; });
+}
+// ---- the editor reads Cloudpath itself: address, email and password are typed here, used once to sign in, never saved ----
+async function startRead() {
+  const url = ($("#cp_url").value || "").trim(), user = ($("#cp_user").value || "").trim(), pass = $("#cp_pass").value;
+  if (!url || !user || !pass) { CV.msg = { bad: true, text: "Enter the address, the email and the password." }; CV.cpUrl = url; CV.cpUser = user; return drawConnections(); }
+  store.set("cpUrl", url); store.set("cpUser", user); CV.cpUrl = url; CV.cpUser = user;
+  $("#cp_pass").value = "";                                                // the password is not kept on this page either
+  try { C = await api("/api/connections/cloudpath/crawl", { url, username: user, password: pass, filter: CV.cpFilter || "", limit: CV.cpLimit || "" }); CV.msg = null; }
+  catch (e) { CV.msg = { bad: true, text: e.message }; }
+  drawConnections(); if (C.cloudpath.job && ["starting", "running"].includes(C.cloudpath.job.state)) watchJob();
+}
+async function stopRead() { try { C = await api("/api/connections/cloudpath/crawl/stop", {}); } catch (e) { CV.msg = { bad: true, text: e.message }; } drawConnections(); }
+const jobText = (j) => j.state === "starting" ? "Signing in…" : j.total ? "Reading " + j.done + " of " + j.total + (j.listed && j.listed > j.total ? " (Cloudpath lists " + j.listed + ")" : "") + (j.name ? ": " + j.name : "") + (j.secondsLeft ? " · about " + (j.secondsLeft >= 90 ? Math.ceil(j.secondsLeft / 60) + " min" : j.secondsLeft + " s") + " left" : "") : j.message;
+function updateJobUI(j) {
+  const bar = $("#jobBar"), txt = $("#jobText"); if (!bar || !txt || !j) return;
+  bar.style.width = (j.total ? Math.round((j.done / j.total) * 100) : 3) + "%"; txt.textContent = jobText(j);
+}
+function watchJob() {
+  clearInterval(jpoll);
+  jpoll = setInterval(async () => {
+    let r; try { r = await api("/api/connections"); } catch { return; }
+    C = r; const j = r.cloudpath.job;
+    if (j && (j.state === "starting" || j.state === "running")) { updateJobUI(j); return; }
+    clearInterval(jpoll); jpoll = null;
+    const open = !!document.querySelector(".dialog.wide");
+    if (j && (j.state === "done" || j.state === "stopped")) await reloadAfter("cp");
+    if (open) {
+      CV.msg = !j ? null : j.state === "failed" ? { bad: true, text: j.message } : { text: j.message + " They are in the From Cloudpath list." };
+      drawConnections();
+    }
+  }, 1000);
 }
 async function armCrawl() {
   try { const r = await api("/api/connections/cloudpath/arm", { filter: CV.cpFilter || "", limit: CV.cpLimit || "" }); CV.arm = r; } catch (e) { CV.msg = { bad: true, text: e.message }; return drawConnections(); }
@@ -1099,19 +1130,31 @@ function drawConnections() {
   const act = cp.active;
   const cloud = [
     h("h4", {}, "Cloudpath"),
-    h("p", { class: "hint" }, "The editor never signs in to Cloudpath. It reads a crawl made in your own browser, signed in as the Cloudpath user you choose. A crawl holds workflows and settings, no passwords."),
+    h("p", { class: "hint" }, "Enter the address and a Cloudpath admin sign-in. The editor signs in itself, reads the workflows (it only reads) and signs out. The password is used once to sign in and is never saved, shown or logged. A crawl holds workflows and settings, no passwords or secrets."),
     act ? h("div", { class: "note" }, "Reading from ", h("b", {}, act.source || "(unknown address)"), " · read " + String(act.crawledAt).slice(0, 10) + " · " + cpCount(act) + (act.filter ? " (names matching “" + act.filter + "”)" : "") + (act.cloudpathVersion ? " · Cloudpath " + act.cloudpathVersion : ""),
       act.listed && act.listed > act.workflows ? h("div", { class: "hint" }, "Cloudpath lists " + act.listed + " workflows; only the ones read are here. Read again with a different filter, or without one, to get others.") : null) : h("div", { class: "note" }, "No Cloudpath crawl is loaded."),
     ...(cp.saved.length ? [h("div", { class: "hint" }, "Saved crawls"), ...cp.saved.map((s) => row(act && act.file === s.file, s.source || s.file, String(s.crawledAt).slice(0, 10) + " · " + s.workflows + " workflows · " + s.file,
       [act && act.file === s.file ? null : h("button", { class: "btn small", onclick: () => useCrawl(s.file) }, "Use"), h("button", { class: "btn small", onclick: () => delCrawl(s.file) }, "Delete")]))] : []),
-    h("div", { class: "cform", style: "margin-top:6px" },
-      h("div", {}, h("label", { for: "cp_filter" }, "Only workflows whose name contains (optional)"), h("input", { id: "cp_filter", type: "text", placeholder: "e.g. guest, school  (several: separate with commas, or a /regex/)", value: CV.cpFilter || "", oninput: (e) => { CV.cpFilter = e.target.value; } })),
-      h("div", {}, h("label", { for: "cp_limit" }, "Read at most (optional)"), h("input", { id: "cp_limit", type: "number", min: 1, placeholder: "all of them", value: CV.cpLimit || "", oninput: (e) => { CV.cpLimit = e.target.value; } })),
-      h("div", { class: "full hint" }, "A Cloudpath instance can have hundreds of workflows (one here has 350); reading all of them takes about 2 seconds each. Filter or limit them if you only need some.")),
-    h("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:8px" },
-      h("button", { class: "btn primary small", onclick: armCrawl, disabled: cp.armed }, "Read a Cloudpath instance…"),
-      h("button", { class: "btn small", onclick: () => $("#crawlIn").click() }, "Load a crawl file…"),
-      h("input", { type: "file", id: "crawlIn", accept: ".json,application/json", hidden: true, onchange: (e) => { const f = e.target.files[0]; e.target.value = ""; loadCrawlFile(f); } })),
+    ...(cp.job && (cp.job.state === "starting" || cp.job.state === "running") ? [
+      h("div", { class: "note", style: "margin-top:8px" },
+        h("div", {}, h("b", {}, "Reading " + (cp.job.origin ? new URL(cp.job.origin).host : "Cloudpath")), " ", h("span", { id: "jobText" }, jobText(cp.job))),
+        h("div", { style: "height:8px;background:var(--line);border-radius:4px;margin:8px 0;overflow:hidden" }, h("div", { id: "jobBar", style: "height:100%;background:var(--accent);width:" + (cp.job.total ? Math.round((cp.job.done / cp.job.total) * 100) : 3) + "%;transition:width .4s" })),
+        h("button", { class: "btn small", onclick: stopRead }, "Stop (keep what is read so far)"))
+    ] : [
+      h("div", { class: "cform", style: "margin-top:8px" },
+        h("div", {}, h("label", { for: "cp_url" }, "Cloudpath address"), h("input", { id: "cp_url", type: "text", placeholder: "https://cloudpath.example.com", value: CV.cpUrl || "", autocomplete: "off", spellcheck: "false" })),
+        h("div", {}, h("label", { for: "cp_user" }, "Email (admin user name)"), h("input", { id: "cp_user", type: "text", value: CV.cpUser || "", autocomplete: "off", spellcheck: "false" })),
+        h("div", {}, h("label", { for: "cp_pass" }, "Password"), h("input", { id: "cp_pass", type: "password", autocomplete: "off", onkeydown: (e) => { if (e.key === "Enter") startRead(); } })),
+        h("div", {}),
+        h("div", {}, h("label", { for: "cp_filter" }, "Only workflows whose name contains (optional)"), h("input", { id: "cp_filter", type: "text", placeholder: "e.g. guest, school  (several: separate with commas, or a /regex/)", value: CV.cpFilter || "", oninput: (e) => { CV.cpFilter = e.target.value; } })),
+        h("div", {}, h("label", { for: "cp_limit" }, "Read at most (optional)"), h("input", { id: "cp_limit", type: "number", min: 1, placeholder: "all of them", value: CV.cpLimit || "", oninput: (e) => { CV.cpLimit = e.target.value; } })),
+        h("div", { class: "full hint" }, "A Cloudpath instance can have hundreds of workflows (one has 350); reading each takes about 2 seconds, so a full read can take 10 to 25 minutes. Filter or limit them if you only need some. Use a Cloudpath account that can read workflows; if it uses single sign-on or a verification code, use the browser method below.")),
+      h("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center" },
+        h("button", { class: "btn primary small", onclick: startRead }, "Read it now"),
+        h("button", { class: "btn small", onclick: () => $("#crawlIn").click() }, "Load a crawl file…"),
+        h("button", { class: "btn small", onclick: armCrawl, disabled: cp.armed, title: "For Cloudpath accounts with single sign-on or a verification code: run a script in your own signed-in browser tab" }, "Use a browser console instead…"),
+        h("input", { type: "file", id: "crawlIn", accept: ".json,application/json", hidden: true, onchange: (e) => { const f = e.target.files[0]; e.target.value = ""; loadCrawlFile(f); } }))
+    ]),
   ];
   if (CV.arm) cloud.push(h("div", { class: "note", style: "margin-top:8px" },
     h("div", {}, h("b", {}, "Waiting for the crawl… "), "(for 15 minutes)"),

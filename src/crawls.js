@@ -18,7 +18,7 @@ function validateCrawl(j) {
 // catches crawls made by an older crawler. Descriptions, labels, endpoints and the like are not secrets.
 const SECRET = /secret|password|passphrase|api.?key|consumer.?key|private.?key|access.?key|token/i;
 const NOT_SECRET = /(description|label|caption|regex|variable|required|endpoint|url|file|name|supported|rotationschedule|length)$/i;
-const TIP = /((?:secret|password|passphrase|api ?key|token)[^:\n]{0,24}:[ \t]*)(?!\[removed\])[^\n]+/gi;
+const TIP = /((?:secret|password|passphrase|api ?key|token)[^:\n]{0,24}:[ \t]*)(?!\[removed\])[^\n \t][^\n]*/gi;
 // Returns { crawl, removed } where removed is how many values were replaced. Works on a copy.
 function redact(j) {
   let removed = 0;

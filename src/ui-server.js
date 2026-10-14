@@ -22,15 +22,16 @@ const coverageMod = require("./coverage");
 const conns = require("./connections");
 const crawls = require("./crawls");
 const { buildBrowserScript } = require("./crawlscript");
+const { startCrawlJob, publicJob } = require("./crawl-job");
 
 const NAME = /^[\w .()-]{1,80}$/;
 
-function createUiServer({ client: startClient = null, crawl: startCrawl = null, mapping: startMapping = {}, root = path.join(__dirname, ".."), log = () => {}, pollMs, makeClient = require("./r1").client, connection = "" } = {}) {
+function createUiServer({ client: startClient = null, crawl: startCrawl = null, mapping: startMapping = {}, root = path.join(__dirname, ".."), log = () => {}, pollMs, makeClient = require("./r1").client, connection = "", cloudpathFetch = fetch } = {}) {
   const token = crypto.randomBytes(24).toString("hex");
   // What the editor is connected to can change while it runs (Connections dialog): the RUCKUS One tenant and the Cloudpath crawl.
   let client = startClient, crawl = startCrawl, mapping = startMapping;
   let connName = connection || (startClient ? "default" : "offline");    // "offline", "default", or a saved connection's name
-  let applying = 0, arm = null, crawlStamp = 0;
+  let applying = 0, arm = null, crawlStamp = 0, job = null;
   const previews = new Map();                                 // hash -> time
   let inv = null;
   const draftsDir = path.join(root, "data", "drafts");
@@ -122,7 +123,7 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
     const s = conns.summary(root);
     return {
       r1: { name: connName, live: !!client, hasDefault: s.hasDefault, profiles: s.profiles, regions: s.regions },
-      cloudpath: { active: crawls.activeInfo(root, crawl), saved: crawls.listSaved(root), armed: !!(arm && arm.until > Date.now()), stamp: crawlStamp },
+      cloudpath: { active: crawls.activeInfo(root, crawl), saved: crawls.listSaved(root), armed: !!(arm && arm.until > Date.now()), stamp: crawlStamp, job: publicJob(job) },
     };
   }
 
@@ -163,6 +164,15 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
       setCrawl(j); return connectionsState();
     },
     "POST /api/connections/cloudpath/delete": async (b) => { crawls.deleteSaved(root, String(b.file || "")); return connectionsState(); },
+    // The editor signs in to Cloudpath itself (address, email, password typed in the editor), reads, and signs out. The password is never stored.
+    "POST /api/connections/cloudpath/crawl": async (b) => {
+      if (job && (job.state === "starting" || job.state === "running")) throw httpError(409, "A Cloudpath read is already running.");
+      const limit = Math.max(0, Math.min(5000, parseInt(b.limit, 10) || 0));
+      job = startCrawlJob({ url: b.url, username: b.username, password: b.password, filter: String(b.filter || "").trim().slice(0, 300), limit: limit || undefined, fetchImpl: cloudpathFetch,
+        onDone: async (result) => { setCrawl(result); } });
+      return connectionsState();
+    },
+    "POST /api/connections/cloudpath/crawl/stop": async () => { if (job && (job.state === "starting" || job.state === "running")) job.stop(); return connectionsState(); },
     "POST /api/connections/cloudpath/arm": async (b, req) => {
       const host = String(req.headers.host || "127.0.0.1:8787");
       arm = { code: crypto.randomBytes(16).toString("hex"), until: Date.now() + 15 * 60e3 };
