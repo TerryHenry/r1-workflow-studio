@@ -293,17 +293,28 @@ function renderHeader() {
   const th = store.get("theme", "auto"); $("#btnTheme").textContent = th === "light" ? "☀" : th === "dark" ? "☾" : "◐";
 }
 
+const cpCount = (i) => (i.listed && i.listed > i.workflows ? i.workflows + " of " + i.listed + " workflows read" : i.workflows + " workflow" + (i.workflows === 1 ? "" : "s")) + (i.stopped ? " (stopped early)" : "");
+function drawCpList() {
+  const box = $("#cpList"); if (!box) return;
+  const q = String(S.cpFilter || "").trim().toLowerCase();
+  const list = S.cloudpath.filter((w) => !q || w.name.toLowerCase().includes(q));
+  box.replaceChildren(...list.map((w) => h("button", { class: S.source === "cp:" + w.name ? "on" : "", title: w.kind === "guestNetwork" ? "A voucher sign-in is a guest network in R1: this opens it as one" : "", onclick: () => { const m = clone(w), notes = m._notes; delete m._notes; delete m._issues; openWorkflow(m, "cp:" + w.name, notes); } },
+    h("span", {}, (w.kind === "guestNetwork" ? "📶 " : "") + w.name), h("span", { class: "pill " + (w._issues ? "bad" : "ok") }, w._issues ? w._issues + " to fix" : "ready"))),
+    list.length ? null : h("div", { class: "hint" }, "Nothing matches."));
+}
 function renderLeft() {
   const L = $("#left"); L.replaceChildren();
   L.append(h("h2", {}, "Start"));
   L.append(h("div", { class: "list" }, h("button", { onclick: () => openWorkflow(clone(S.blank), "new") }, "＋ New blank workflow"), h("button", { onclick: () => openObject(clone(S.blankTpl), "new") }, "＋ New certificate template"), h("button", { onclick: () => openObject(clone(S.blankGuest), "new") }, "＋ New guest network"), h("button", { onclick: () => $("#fileIn").click(), title: "Open a workflow, certificate template or guest network that was saved to a file (Export file)" }, "📂 Open a file…"), h("button", { onclick: () => openConnections(), title: "Choose which RUCKUS One tenant and which Cloudpath instance the editor works with" }, "🔌 Connections…"), h("button", { onclick: () => window.open("/coverage", "_blank", "noopener"), title: "A chart of what is in Cloudpath, what it becomes in RUCKUS One, and what can't be converted" }, "📊 Cloudpath vs R1 chart")));
   L.append(h("h2", {}, "From Cloudpath"));
   { const i = S.cpInfo; let host = ""; try { host = new URL(i.source).hostname; } catch { host = i ? i.source : ""; }
-    L.append(h("div", { class: "hint", style: "margin:0 0 6px" }, i ? host + " · read " + String(i.crawledAt).slice(0, 10) + " · " + i.workflows + " workflow" + (i.workflows === 1 ? "" : "s") : "No Cloudpath instance loaded.", " ",
+    L.append(h("div", { class: "hint", style: "margin:0 0 6px" }, i ? host + " · read " + String(i.crawledAt).slice(0, 10) + " · " + cpCount(i) : "No Cloudpath instance loaded.", " ",
       h("button", { class: "btn small", onclick: () => openConnections("cloudpath") }, i ? "Change…" : "Read a Cloudpath instance…"))); }
   if (S.cloudpath.length) {
-    L.append(h("div", { class: "list" }, S.cloudpath.map((w) => h("button", { class: S.source === "cp:" + w.name ? "on" : "", title: w.kind === "guestNetwork" ? "A voucher sign-in is a guest network in R1: this opens it as one" : "", onclick: () => { const m = clone(w), notes = m._notes; delete m._notes; delete m._issues; openWorkflow(m, "cp:" + w.name, notes); } }, h("span", {}, (w.kind === "guestNetwork" ? "📶 " : "") + w.name),
-      h("span", { class: "pill " + (w._issues ? "bad" : "ok") }, w._issues ? w._issues + " to fix" : "ready")))));
+    const box = h("div", { class: "list", id: "cpList" });
+    if (S.cloudpath.length > 12) L.append(h("input", { type: "text", id: "cpFilter", placeholder: "Filter " + S.cloudpath.length + " workflows…", "aria-label": "Filter the Cloudpath workflows", value: S.cpFilter || "", style: "margin:0 0 6px",
+      oninput: (e) => { S.cpFilter = e.target.value; drawCpList(); } }));
+    L.append(box); drawCpList();
     L.append(h("p", { class: "hint" }, "Steps Cloudpath has but R1 doesn't show as red dashed cards. Replace or delete them."));
   }
   if ((S.samples || []).length) {
@@ -1022,16 +1033,9 @@ async function openConnections(focus) {
   if (focus === "cloudpath" && !C.cloudpath.active) armCrawl();
 }
 function closeConnections() { clearInterval(cpoll); cpoll = null; closeModal(); }
-async function cpIssueCount(w) {
-  try {
-    const r = w.kind === "guestNetwork" ? await api("/api/guest/validate", { guest: w, options: {} }) : await api("/api/validate", { workflow: w, options: {} });
-    return r.issues.filter((i) => i.level === "error").length;
-  } catch { return 0; }
-}
 async function reloadAfter(what) {
   const st = await api("/api/state");
   Object.assign(S, { inv: st.inventory, cloudpath: st.cloudpath, live: st.live, connName: st.connection.name, cpInfo: st.cloudpathInfo, preview: null, previewKey: null, applied: null });
-  for (const w of S.cloudpath) w._issues = await cpIssueCount(w);
   if (what === "r1") S.importNotes = (S.importNotes || []).concat(["The connection changed. Anything here that points at RUCKUS One objects by id may not exist in this tenant: see the Problems tab."]).slice(-3);
   try { await validate(); } catch {}
   renderAll();
@@ -1050,7 +1054,7 @@ async function loadCrawlFile(file) {
   return connAct("/api/connections/cloudpath/load", { text }, "POST", async () => { await reloadAfter("cp"); CV.msg = { text: "Loaded " + C.cloudpath.active.workflows + " workflows from " + C.cloudpath.active.source + "." }; });
 }
 async function armCrawl() {
-  try { const r = await api("/api/connections/cloudpath/arm", {}); CV.arm = r; } catch (e) { CV.msg = { bad: true, text: e.message }; return drawConnections(); }
+  try { const r = await api("/api/connections/cloudpath/arm", { filter: CV.cpFilter || "", limit: CV.cpLimit || "" }); CV.arm = r; } catch (e) { CV.msg = { bad: true, text: e.message }; return drawConnections(); }
   C.cloudpath.armed = true; drawConnections();
   clearInterval(cpoll);
   cpoll = setInterval(async () => {
@@ -1096,9 +1100,14 @@ function drawConnections() {
   const cloud = [
     h("h4", {}, "Cloudpath"),
     h("p", { class: "hint" }, "The editor never signs in to Cloudpath. It reads a crawl made in your own browser, signed in as the Cloudpath user you choose. A crawl holds workflows and settings, no passwords."),
-    act ? h("div", { class: "note" }, "Reading from ", h("b", {}, act.source || "(unknown address)"), " · read " + String(act.crawledAt).slice(0, 10) + " · " + act.workflows + " workflow" + (act.workflows === 1 ? "" : "s") + (act.cloudpathVersion ? " · Cloudpath " + act.cloudpathVersion : "")) : h("div", { class: "note" }, "No Cloudpath crawl is loaded."),
+    act ? h("div", { class: "note" }, "Reading from ", h("b", {}, act.source || "(unknown address)"), " · read " + String(act.crawledAt).slice(0, 10) + " · " + cpCount(act) + (act.filter ? " (names matching “" + act.filter + "”)" : "") + (act.cloudpathVersion ? " · Cloudpath " + act.cloudpathVersion : ""),
+      act.listed && act.listed > act.workflows ? h("div", { class: "hint" }, "Cloudpath lists " + act.listed + " workflows; only the ones read are here. Read again with a different filter, or without one, to get others.") : null) : h("div", { class: "note" }, "No Cloudpath crawl is loaded."),
     ...(cp.saved.length ? [h("div", { class: "hint" }, "Saved crawls"), ...cp.saved.map((s) => row(act && act.file === s.file, s.source || s.file, String(s.crawledAt).slice(0, 10) + " · " + s.workflows + " workflows · " + s.file,
       [act && act.file === s.file ? null : h("button", { class: "btn small", onclick: () => useCrawl(s.file) }, "Use"), h("button", { class: "btn small", onclick: () => delCrawl(s.file) }, "Delete")]))] : []),
+    h("div", { class: "cform", style: "margin-top:6px" },
+      h("div", {}, h("label", { for: "cp_filter" }, "Only workflows whose name contains (optional)"), h("input", { id: "cp_filter", type: "text", placeholder: "e.g. guest, school  (several: separate with commas, or a /regex/)", value: CV.cpFilter || "", oninput: (e) => { CV.cpFilter = e.target.value; } })),
+      h("div", {}, h("label", { for: "cp_limit" }, "Read at most (optional)"), h("input", { id: "cp_limit", type: "number", min: 1, placeholder: "all of them", value: CV.cpLimit || "", oninput: (e) => { CV.cpLimit = e.target.value; } })),
+      h("div", { class: "full hint" }, "A Cloudpath instance can have hundreds of workflows (one here has 350); reading all of them takes about 2 seconds each. Filter or limit them if you only need some.")),
     h("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:8px" },
       h("button", { class: "btn primary small", onclick: armCrawl, disabled: cp.armed }, "Read a Cloudpath instance…"),
       h("button", { class: "btn small", onclick: () => $("#crawlIn").click() }, "Load a crawl file…"),
@@ -1193,7 +1202,6 @@ $("#btnUndo").addEventListener("click", undo); $("#btnRedo").addEventListener("c
     const st = await api("/api/state");
     S.connName = st.connection.name; S.cpInfo = st.cloudpathInfo;
     Object.assign(S, { schema: st.schema, inv: st.inventory, cloudpath: st.cloudpath, drafts: st.drafts, samples: st.samples, blank: st.blank, live: st.live, tplFields: st.templateFields, blankTpl: st.blankTemplate, guestFields: st.guestFields, blankGuest: st.blankGuest, logicFields: st.logicFields, logicOps: st.logicOps, lookColors: st.lookColors, defaultLook: st.defaultLook });
-    for (const w of S.cloudpath) w._issues = await cpIssueCount(w);
     S.wf = null; renderAll();
   } catch (e) { $("#flow").append(h("p", { style: "color:var(--bad)" }, "Could not load: " + e.message)); }
 })();

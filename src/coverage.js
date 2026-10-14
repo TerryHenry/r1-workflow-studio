@@ -85,7 +85,7 @@ function rowId(n) {
 function coverage(crawl, mapping = {}, now = new Date()) {
   const rows = CATALOG.map((r) => ({ ...r, count: crawl ? 0 : null }));
   const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
-  const out = { generatedAt: now.toISOString(), source: crawl ? crawl.source || "" : "", crawledAt: crawl ? crawl.crawledAt || "" : "", hasCrawl: !!crawl, rows, r1Only: R1_ONLY, statusText: STATUS, workflows: [], totals: { converts: 0, mapping: 0, partial: 0, none: 0 }, ruleBranches: null };
+  const out = { listed: crawl && Number(crawl.listed) || null, generatedAt: now.toISOString(), source: crawl ? crawl.source || "" : "", crawledAt: crawl ? crawl.crawledAt || "" : "", hasCrawl: !!crawl, rows, r1Only: R1_ONLY, statusText: STATUS, workflows: [], totals: { converts: 0, mapping: 0, partial: 0, none: 0 }, ruleBranches: null };
   if (!crawl) return out;
   const plan = convertAll(crawl, mapping);
   let ruleTotal = 0, ruleDone = 0;
@@ -148,9 +148,11 @@ function html(data, { csvHref = "" } = {}) {
   const legend = ["converts", "mapping", "partial", "none", "unread"].map((k) => `<li><span class="chip ${k}"><b aria-hidden="true">${GLYPH[k]}</b> ${esc(STATUS[k])}</span></li>`).join("");
   const table = groups.map((g) => `<h2>${esc(g)}</h2><div class="tw"><table><thead><tr><th>Cloudpath</th><th>RUCKUS One</th><th>Result</th>${data.hasCrawl ? "<th class=\"n\">In yours</th>" : ""}<th>What carries over and what doesn't</th></tr></thead><tbody>` +
     data.rows.filter((r) => r.group === g).map((r) => `<tr><td>${esc(r.cloudpath)}</td><td>${esc(r.r1)}</td><td><span class="chip ${r.status}"><b aria-hidden="true">${GLYPH[r.status]}</b> ${esc(STATUS[r.status])}</span><div class="ev">${esc(r.evidence)}</div></td>${data.hasCrawl ? `<td class="n">${r.count == null ? "" : r.count}</td>` : ""}<td>${esc(r.note)}</td></tr>`).join("") + "</tbody></table></div>").join("");
-  const per = data.workflows.map((w) => `<div class="wf"><div class="wn">${esc(w.name)}</div>${bar(w.counts, w.total)}<div class="wt">${w.total} step${w.total === 1 ? "" : "s"}</div></div>`).join("");
+  const wfRow = (w) => `<div class="wf"><div class="wn">${esc(w.name)}</div>${bar(w.counts, w.total)}<div class="wt">${w.total} step${w.total === 1 ? "" : "s"}</div></div>`;
+  const SHOW = 30;      // a Cloudpath instance can have hundreds of workflows: show the first ones, keep the rest one click away
+  const per = data.workflows.slice(0, SHOW).map(wfRow).join("") + (data.workflows.length > SHOW ? `<details><summary>Show the other ${data.workflows.length - SHOW} workflows</summary><div class="wfs">${data.workflows.slice(SHOW).map(wfRow).join("")}</div></details>` : "");
   const summary = data.hasCrawl
-    ? `<h2>Your Cloudpath: ${total} steps in ${data.workflows.length} workflows</h2>${bar(T, total)}<p class="sub">${pct(T.converts)}% convert automatically, ${pct(T.mapping)}% once you choose or create an R1 object, ${pct(T.partial)}% only in part, ${pct(T.none)}% not at all.${data.ruleBranches && data.ruleBranches.total ? ` Of ${data.ruleBranches.total} rule-based branches, ${data.ruleBranches.convertible} convert completely to logical-split conditions.` : ""}</p><div class="wfs">${per}</div>`
+    ? `<h2>Your Cloudpath: ${total} steps in ${data.workflows.length} workflows${data.listed && data.listed > data.workflows.length ? ` (Cloudpath lists ${data.listed}; the rest were not read)` : ""}</h2>${bar(T, total)}<p class="sub">${pct(T.converts)}% convert automatically, ${pct(T.mapping)}% once you choose or create an R1 object, ${pct(T.partial)}% only in part, ${pct(T.none)}% not at all.${data.ruleBranches && data.ruleBranches.total ? ` Of ${data.ruleBranches.total} rule-based branches, ${data.ruleBranches.convertible} convert completely to logical-split conditions.` : ""}</p><div class="wfs">${per}</div>`
     : `<p class="sub">No Cloudpath crawl is loaded, so there are no counts: this is the general chart of what converts.</p>`;
   const r1 = data.r1Only.map((r) => `<tr><td>${esc(r.r1)}</td><td>${esc(r.note)}</td></tr>`).join("");
   return `<!doctype html>

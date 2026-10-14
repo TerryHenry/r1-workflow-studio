@@ -188,3 +188,12 @@ test("secrets are never kept in a crawl: removed on the way in, from saved files
   const script = fs.readFileSync(path.join(__dirname, "..", "crawl", "crawl.browser.js"), "utf8");
   assert.match(script, /fields\[n\] = redact\(n, e\.value\)/); assert.match(script, /tooltip: tip\(/);
 });
+
+test("a big Cloudpath instance: the chart says how many were read of how many exist and folds the long list", () => {
+  const many = { ...crawl, listed: 350, workflows: Array.from({ length: 45 }, (_, i) => ({ ...crawl.workflows[0], name: "W" + i })) };
+  const d = coverage(many, {});
+  assert.equal(d.listed, 350);
+  const page = html(d, {});
+  assert.match(page, /Cloudpath lists 350; the rest were not read/); assert.match(page, /<details><summary>Show the other 15 workflows/);
+  assert.ok(!/<details>/.test(html(coverage(crawl, {}), {})), "a small instance shows everything");
+});

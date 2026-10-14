@@ -141,3 +141,18 @@ test("the crawler can report straight to the editor: one-time code, 15 minutes, 
     assert.equal((await s.call("POST", "/api/crawl/receive", body, { "x-crawl-code": code })).status, 403, "single use");
   } finally { await s.close(); }
 });
+
+test("reading options go into the crawler script, and every Cloudpath entry arrives with its problem count", async () => {
+  const s = await start();
+  try {
+    const a = (await s.post("/api/connections/cloudpath/arm", { filter: 'guest, "quote"\n</script>', limit: "25" })).json();
+    assert.match(a.script, /window\.__CRAWL_FILTER="guest, \\"quote\\"\\n<\/script>";window\.__CRAWL_LIMIT=25;/);
+    assert.ok(!/__CRAWL_LIMIT=NaN|__CRAWL_FILTER=undefined/.test(a.script));
+    const none = (await s.post("/api/connections/cloudpath/arm", {})).json();
+    assert.ok(!/__CRAWL_FILTER|__CRAWL_LIMIT=/.test(none.script.split("\n")[0]), "no options, none set");
+    assert.match((await s.post("/api/connections/cloudpath/arm", { limit: "999999" })).json().script, /__CRAWL_LIMIT=5000;/);
+    const st = (await s.call("GET", "/api/state")).json();
+    assert.ok(st.cloudpath.every((w) => Number.isInteger(w._issues)), "the server counts each entry's problems (no call per workflow from the page)");
+    assert.ok(st.cloudpath.find((w) => w.name === "personalPassphrase")._issues >= 0);
+  } finally { await s.close(); }
+});

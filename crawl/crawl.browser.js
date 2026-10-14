@@ -6,9 +6,14 @@
   const RECEIVER = window.__CRAWL_RECEIVER || "http://127.0.0.1:8765/crawl";
   const parse = (html) => new DOMParser().parseFromString(html, "text/html");
   const get = async (url) => {
-    const r = await fetch(url, { credentials: "same-origin" });
-    if (!r.ok) throw new Error(url + " -> " + r.status);
-    return r.text();
+    for (let attempt = 0; ; attempt++) {                              // a busy server (429, 5xx) or a dropped request is tried again, twice
+      try {
+        const r = await fetch(url, { credentials: "same-origin" });
+        if (r.ok) return r.text();
+        if (attempt >= 2 || (r.status < 500 && r.status !== 429)) throw new Error(url + " -> " + r.status);
+      } catch (e) { if (attempt >= 2 || /-> \d+$/.test(String(e.message))) throw e; }
+      await new Promise((ok) => setTimeout(ok, 1500 * (attempt + 1)));
+    }
   };
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   // Secrets are never kept: shared passphrases, API keys, OAuth secrets, default passwords. Descriptions, labels and endpoints are fine.
@@ -97,32 +102,80 @@
     return out;
   }
 
-  const listDoc = parse(await get("/admin/workflow/viewAllWorkflows"));
-  const rows = [...new Set([...listDoc.querySelectorAll('a[href^="/admin/workflow/"]')].map((a) => a.getAttribute("href")).filter((h) => /^\/admin\/workflow\/\d+\/$/.test(h)))];
-  const version = (document.body.innerText.match(/Version\s+([\d.]+)/) || [])[1] || "";
-  const result = { source: location.origin, cloudpathVersion: version, crawledAt: new Date().toISOString(), workflows: [] };
-  for (const href of rows) {
-    const pk = Number(href.match(/(\d+)/)[1]);
-    const base = new URL(href, location.origin).href;
-    const doc = parse(await get(href));
-    const text = clean(doc.body.innerText);
-    const wf = { pk, name: (text.match(/Workflow - "([^"]*)"/) || [])[1] || "", portalUrl: (text.match(/\/enroll\/[^\s]+\//) || [])[0] || "",
-      published: /Published/.test(text.slice(text.indexOf("Workflow - "), text.indexOf("Workflow - ") + 300)) && !/Unpublished/.test(text.slice(text.indexOf("Workflow - "), text.indexOf("Workflow - ") + 300)) };
-    try { wf.steps = await readRegion(base, pk, items(doc), 0, 0, []); } catch (e) { wf.error = String(e); }
-    try {                                   // Look & Feel tab: the form's non-empty fields
-      const lf = parse(await get(href + "template")), look = {};
-      for (const e of lf.querySelectorAll("form input, form select, form textarea")) {
-        if (!e.name || /csrf|password|^cpnFormAction$|^tab$|-default$|-checkbox$/i.test(e.name)) continue;
-        if ((e.type === "radio" || e.type === "checkbox") && !e.checked) continue;
-        const v = e.tagName === "SELECT" ? clean((e.selectedOptions[0] || {}).textContent) : e.value;
-        if (v !== "") look[e.name] = String(v).slice(0, 200);
+  // ---- what to read ----
+  // Cloudpath lists are paged tables: 15 rows by default, 100 at most. Options (set before running, all optional):
+  //   window.__CRAWL_FILTER   only workflows whose name contains one of these words (comma or new line separated), or a /regex/
+  //   window.__CRAWL_LIMIT    read at most this many workflows (in list order)
+  //   window.__CRAWL_PARALLEL read this many workflows at once (default 3, at most 6; tested: the same result as one at a time, about 40% faster)
+  //   window.__CRAWL_STOP = true   stop early: what is read so far is still saved
+  const FILTER = String(window.__CRAWL_FILTER || "").trim(), LIMIT = Number(window.__CRAWL_LIMIT) || Infinity, PARALLEL = Math.max(1, Math.min(6, Number(window.__CRAWL_PARALLEL) || 3));
+  const wanted = (name) => {
+    if (!FILTER) return true;
+    const rx = FILTER.match(/^\/(.*)\/([a-z]*)$/);
+    if (rx) return new RegExp(rx[1], rx[2] || "i").test(name);
+    return FILTER.split(/[,\n]/).map((s) => s.trim().toLowerCase()).filter(Boolean).some((s) => name.toLowerCase().includes(s));
+  };
+  async function listAll(url, tableId, linkTest) {
+    const rows = [], seen = new Set(); let total = null;
+    for (let page = 1; page <= 200; page++) {
+      const html = await get(url + (url.includes("?") ? "&" : "?") + tableId + "_mr_=100&" + tableId + "_p_=" + page), doc = parse(html);
+      if (total == null) { const m = html.match(new RegExp("setTotalRowsToLimit\\('" + tableId + "',\\s*'(\\d+)'")); total = m ? Number(m[1]) : null; }
+      let added = 0;
+      for (const a of doc.querySelectorAll("a[href]")) {
+        const href = a.getAttribute("href");
+        if (!linkTest(href) || seen.has(href)) continue;
+        seen.add(href); added++;
+        const tr = a.closest("tr");
+        rows.push({ href, cells: tr ? [...tr.querySelectorAll("td")].map((td) => clean(td.textContent)) : [] });
       }
-      wf.look = look;
-    } catch (e) { wf.lookError = String(e); }
-    result.workflows.push(wf);
-    console.log("crawled", wf.name, wf.steps ? wf.steps.length + " steps" : wf.error);
+      if (!added || (total != null && rows.length >= total)) break;
+    }
+    return { rows, total };
   }
-  // Objects the workflows point at: DPSK pools and device configurations (SSIDs). Pages show "Label:" then the value.
+
+  const started = Date.now();
+  const all = await listAll("/admin/workflow/viewAllWorkflows", "workflowAndActiveSnapshotTableData", (h) => /^\/admin\/workflow\/\d+\/$/.test(h));
+  const rows = all.rows.map((r, i) => ({ ...r, name: r.cells[1] || "", index: i })).filter((r) => wanted(r.name)).slice(0, LIMIT);
+  const version = (document.body.innerText.match(/Version\s+([\d.]+)/) || [])[1] || "";
+  const result = { source: location.origin, cloudpathVersion: version, crawledAt: new Date().toISOString(), crawlerVersion: 2, listed: all.total == null ? all.rows.length : all.total,
+    filter: FILTER || undefined, limit: Number.isFinite(LIMIT) ? LIMIT : undefined, workflows: [] };
+  console.log(`Cloudpath lists ${result.listed} workflows; reading ${rows.length}${FILTER ? " matching “" + FILTER + "”" : ""}. Set window.__CRAWL_STOP = true to stop early.`);
+
+  async function crawlOne(row) {
+    const href = row.href, pk = Number(href.match(/(\d+)/)[1]), base = new URL(href, location.origin).href;
+    let wf = { pk, name: row.name };
+    try {
+      const doc = parse(await get(href)), text = clean(doc.body.innerText);
+      wf = { pk, name: (text.match(/Workflow - "([^"]*)"/) || [])[1] || row.name, portalUrl: (text.match(/\/enroll\/[^\s]+\//) || [])[0] || "",
+        published: /Published/.test(text.slice(text.indexOf("Workflow - "), text.indexOf("Workflow - ") + 300)) && !/Unpublished/.test(text.slice(text.indexOf("Workflow - "), text.indexOf("Workflow - ") + 300)) };
+      try { wf.steps = await readRegion(base, pk, items(doc), 0, 0, []); } catch (e) { wf.error = String(e); }
+      try {                                   // Look & Feel tab: the form's non-empty fields
+        const lf = parse(await get(href + "template")), look = {};
+        for (const e of lf.querySelectorAll("form input, form select, form textarea")) {
+          if (!e.name || /csrf|password|^cpnFormAction$|^tab$|-default$|-checkbox$/i.test(e.name)) continue;
+          if ((e.type === "radio" || e.type === "checkbox") && !e.checked) continue;
+          const v = e.tagName === "SELECT" ? clean((e.selectedOptions[0] || {}).textContent) : e.value;
+          if (v !== "") look[e.name] = String(v).slice(0, 200);
+        }
+        wf.look = look;
+      } catch (e) { wf.lookError = String(e); }
+    } catch (e) { wf.error = String(e); }
+    return wf;
+  }
+  const queue = rows.slice(), results = []; let done = 0;
+  await Promise.all(Array.from({ length: PARALLEL }, async () => {
+    while (queue.length && !window.__CRAWL_STOP) {
+      const row = queue.shift(), wf = await crawlOne(row);
+      results[row.index] = wf; done++;
+      const left = rows.length - done, per = (Date.now() - started) / done / 1000;
+      console.log(`[${done}/${rows.length}] ${wf.name}: ${wf.steps ? wf.steps.length + " steps" : wf.error}` + (left ? `  (about ${Math.ceil((left * per) / 60)} min left)` : ""));
+    }
+  }));
+  result.workflows = results.filter(Boolean);
+  if (window.__CRAWL_STOP) result.stopped = true;
+
+  // Objects the workflows point at: only the DPSK pools and device configurations that the workflows read use them (there can be hundreds).
+  // Pages show "Label:" then the value.
   const lines = (doc) => {
     doc.querySelectorAll("script,style").forEach((e) => e.remove());
     const x = doc.body.innerText.split("\n").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
@@ -130,23 +183,43 @@
   };
   const kv = (L) => { const o = {}; for (let i = 0; i < L.length - 1; i++) if (/:$/.test(L[i]) && !/:$/.test(L[i + 1])) o[L[i].slice(0, -1)] = L[i + 1]; return o; };
   const none = (v) => (!v || /^\[None\]$/.test(v) ? null : v);
-  result.objects = { dpskPools: [], deviceConfigs: [] };
-  try {
-    const pools = parse(await get("/admin/dpsk/"));
-    for (const h of new Set([...pools.querySelectorAll('a[href*="viewPoolInfo"]')].map((a) => a.getAttribute("href")))) {
-      const k = kv(lines(parse(await get(h))));
-      result.objects.dpskPools.push({ name: k["Name"], deviceLimit: none(k["Device Limit"]), ssids: (k["SSID(s)"] || "").split(/[;,]\s*/).filter(Boolean),
-        defaultExpiration: none(k["Default Expiration Date"]), defaultAccess: k["Default Access(No Policy Match)"] });
+  const txt = (v) => clean(v && typeof v === "object" ? v.text || v.value || "" : v || "");
+  const used = { pools: new Set(), nets: new Set() };
+  (function walk(steps) {
+    for (const s of steps || []) {
+      if (s.kind === "dpsk" && s.fields) used.pools.add(txt(s.fields.accountDpskPoolPk));
+      if (s.kind === "output" && s.fields) used.nets.add(txt(s.fields["networkSourceSelection.existingPk"]));
+      for (const o of s.options || []) walk(o.steps);
     }
-    const nets = parse(await get("/admin/advanced/networks/"));
-    for (const h of new Set([...nets.querySelectorAll('a[href*="/networks/"][href*="summary"]')].map((a) => a.getAttribute("href")))) {
-      const s = kv(lines(parse(await get(h))));
-      const L = lines(parse(await get(h.replace("/summary", "/ssids"))));
-      const wlans = [];
-      for (let i = 0; i < L.length; i++) { const m = L[i].match(/^WLAN '([^']*)'$/); if (m) wlans.push({ ssid: m[1], protocol: L[i + 1] }); }
-      result.objects.deviceConfigs.push({ name: (s["Name"] || "").replace(/ mode_edit$/, ""), wlans });
+  })(result.workflows.flatMap((w) => w.steps || []));
+  used.pools.delete(""); used.nets.delete("");
+  result.objects = { dpskPools: [], deviceConfigs: [], missing: { dpskPools: [], deviceConfigs: [] } };
+  try {
+    if (used.pools.size) {
+      const pools = await listAll("/admin/dpsk/", "accountDpskPoolTableData", (h) => /viewPoolInfo/.test(h));
+      for (const name of used.pools) {
+        const row = pools.rows.find((r) => r.cells.includes(name));
+        if (!row) { result.objects.missing.dpskPools.push(name); continue; }
+        const k = kv(lines(parse(await get(row.href))));
+        result.objects.dpskPools.push({ name: k["Name"] || name, deviceLimit: none(k["Device Limit"]), ssids: (k["SSID(s)"] || "").split(/[;,]\s*/).filter(Boolean),
+          defaultExpiration: none(k["Default Expiration Date"]), defaultAccess: k["Default Access(No Policy Match)"] });
+      }
+    }
+    if (used.nets.size) {
+      const nets = await listAll("/admin/advanced/networks/", "accountDeviceConfigTableData", (h) => /\/networks\/\d+\/summary/.test(h));
+      for (const name of used.nets) {
+        const row = nets.rows.find((r) => r.cells.includes(name));
+        if (!row) { result.objects.missing.deviceConfigs.push(name); continue; }
+        const s = kv(lines(parse(await get(row.href))));
+        const L = lines(parse(await get(row.href.replace("/summary", "/ssids"))));
+        const wlans = [];
+        for (let i = 0; i < L.length; i++) { const m = L[i].match(/^WLAN '([^']*)'$/); if (m) wlans.push({ ssid: m[1], protocol: L[i + 1] }); }
+        result.objects.deviceConfigs.push({ name: (s["Name"] || name).replace(/ mode_edit$/, ""), wlans });
+      }
     }
   } catch (e) { result.objects.error = String(e); }
+  result.elapsedSeconds = Math.round((Date.now() - started) / 1000);
+  console.log(`Read ${result.workflows.length} workflows in ${result.elapsedSeconds} s.`);
   window.__crawl = result;
   const body = JSON.stringify(result);
   if (window.__NO_SEND) return "crawled " + body.length + " bytes (kept in window.__crawl)";

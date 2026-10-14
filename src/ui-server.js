@@ -41,7 +41,9 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
     if (!crawl) return [];
     const i = await getInv();
     const plan = convertAll(crawl, mapping);
-    return plan.workflows.flatMap((w) => {
+    const count = (m) => (m.kind === "guestNetwork" ? validateGuestNetwork(m, i, {}) : validate(m, i, {})).filter((x) => x.level === "error").length;
+    const withIssues = (list) => list.map((m) => ({ ...m, _issues: count(m) }));
+    return withIssues(plan.workflows.flatMap((w) => {
       const raw = crawl.workflows.find((x) => x.name === w.name), lf = raw && lookFromCloudpath(raw.look, w.name);
       const guest = raw && guestFromPlan(raw);
       // A voucher sign-in is a guest pass, which in R1 is a guest network. A workflow that is only that opens as the guest network.
@@ -51,7 +53,7 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
       if (lf) { model.look = lf.look; model.source = { ...model.source, lookNotes: lf.notes }; }
       model._notes = (model.source && model.source.notes) || [];
       return guest ? [model, asGuest(["Made from the voucher branch of the Cloudpath workflow “" + w.name + "”, which can't be part of an R1 workflow."])] : [model];
-    });
+    }));
   }
 
   // Runs the builder against the model. apply=false: reads from R1, writes nothing.
@@ -164,7 +166,9 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
       const host = String(req.headers.host || "127.0.0.1:8787");
       arm = { code: crypto.randomBytes(16).toString("hex"), until: Date.now() + 15 * 60e3 };
       const script = fs.readFileSync(path.join(root, "crawl", "crawl.browser.js"), "utf8");
-      return { until: arm.until, script: `window.__CRAWL_RECEIVER=${JSON.stringify("http://" + host + "/api/crawl/receive")};window.__CRAWL_CODE=${JSON.stringify(arm.code)};\n` + script };
+      const filter = String(b.filter || "").trim().slice(0, 300), limit = Math.max(0, Math.min(5000, parseInt(b.limit, 10) || 0));
+      const opts = (filter ? `window.__CRAWL_FILTER=${JSON.stringify(filter)};` : "") + (limit ? `window.__CRAWL_LIMIT=${limit};` : "");
+      return { until: arm.until, script: `window.__CRAWL_RECEIVER=${JSON.stringify("http://" + host + "/api/crawl/receive")};window.__CRAWL_CODE=${JSON.stringify(arm.code)};${opts}\n` + script };
     },
     "POST /api/connections/cloudpath/disarm": async () => { arm = null; return connectionsState(); },
     "POST /api/file/export": async (b) => exportFile(b.model),

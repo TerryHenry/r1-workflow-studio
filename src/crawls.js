@@ -48,7 +48,7 @@ function redactSaved(root) {
 const dirOf = (root) => path.join(root, "data", "crawls");
 const activeFile = (root) => path.join(root, "data", "crawl.json");
 const same = (a, b) => a && b && (a.source || "") === (b.source || "") && (a.crawledAt || "") === (b.crawledAt || "") && a.workflows.length === b.workflows.length;
-const brief = (j, file) => ({ file: file || null, source: String(j.source || ""), crawledAt: String(j.crawledAt || ""), cloudpathVersion: String(j.cloudpathVersion || ""), workflows: j.workflows.length });
+const brief = (j, file) => ({ file: file || null, source: String(j.source || ""), crawledAt: String(j.crawledAt || ""), cloudpathVersion: String(j.cloudpathVersion || ""), workflows: j.workflows.length, listed: Number(j.listed) || null, filter: j.filter ? String(j.filter).slice(0, 80) : null, stopped: !!j.stopped });
 
 function read(file) { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; } }
 function write(file, j) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(j, null, 2), { mode: 0o600 }); }
