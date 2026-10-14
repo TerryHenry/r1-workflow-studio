@@ -94,6 +94,12 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
     tab's console; it reports back to the editor by itself (`POST /api/crawl/receive`, accepted only with the code, once). If Cloudpath's
     security policy blocks that, it downloads `crawl.json`: "Load a crawl file…". Every crawl is kept in `data/crawls/` (named by instance
     and date), so you can switch back; the active one is also written to `data/crawl.json` for the command-line tools.
+    Cloudpath lists are paged (15 rows, at most 100 per page); the crawler follows the pages, so it reads every workflow, and reads only
+    the DPSK pools and device configurations that those workflows use. A big instance has hundreds (one test instance has 350, about 2
+    seconds each), so the dialog has "only names containing…" and "read at most…" options (also `window.__CRAWL_FILTER`, `__CRAWL_LIMIT`,
+    `__CRAWL_PARALLEL` and `__CRAWL_STOP` if you paste the script yourself). Reading 3 workflows at once gives the same result as one at a
+    time (tested). The Cloudpath list in the editor has a filter box, and the chart says "N of M read". A crawl never keeps secrets (shared
+    passphrases, API keys, OAuth secrets, default passwords): the crawler leaves them out and the editor removes them from any crawl it loads.
 
 ## Step mapping
 | Cloudpath | R1 action | Support |
