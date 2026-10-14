@@ -10,6 +10,10 @@ on:
         type: choice
         options: [both, windows, mac]
         default: both
+      release_tag:
+        description: "Attach the files to this release (for example v1.0.0), replacing files with the same names. Empty: only keep them as workflow artifacts"
+        type: string
+        default: ""
   push:
     tags: ["v*"]
 jobs:
@@ -43,6 +47,8 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -51,7 +57,22 @@ jobs:
       - run: npx electron-builder ${{ matrix.flag }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Attach to the release
+        if: ${{ inputs.release_tag != '' || startsWith(github.ref, 'refs/tags/v') }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          shopt -s nullglob
+          files=(dist-app/*.dmg dist-app/*.zip dist-app/*.exe)
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "${files[@]}" --draft --title "R1 Workflow Studio ${TAG#v}" --notes "Unsigned builds. See the README for the one-time warning on first open." --repo "$GITHUB_REPOSITORY"
+          fi
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: R1-Workflow-Studio-${{ matrix.name }}
           path: |
@@ -59,23 +80,3 @@ jobs:
             dist-app/*.zip
             dist-app/*.exe
           if-no-files-found: error
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: files
-          merge-multiple: true
-      - name: Attach to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" files/* --clobber --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$GITHUB_REF_NAME" files/* --draft --title "R1 Workflow Studio ${GITHUB_REF_NAME#v}" --notes "Unsigned builds. See the README for the one-time warning on first open." --repo "$GITHUB_REPOSITORY"
-          fi
