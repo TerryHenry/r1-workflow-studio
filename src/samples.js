@@ -53,15 +53,15 @@ function byDevice() {
   const cert = note(node("CERT_TEMPLATE", "Laptop certificate", { mode: "new", newName: "Laptop certificate", commonNamePattern: "$(USERNAME)@example.com", validityType: "YEARS", validityValue: 1, caId: "" }),
     "Choose the certificate authority that should issue these certificates.");
   return {
-    name: "Computers vs phones and tablets",
-    description: "A logical split: R1 looks at the visitor's device and decides the path automatically. Computers (device type contains Desktop) get a certificate; everything else gets a passphrase.",
+    name: "Computers vs phones",
+    description: "A logical split: R1 looks at the visitor's device and decides the path automatically. Computers (device type contains Desktop) get a certificate; phones (device type contains Mobile) get a passphrase.",
     steps: [
       node("AUP", "Network policy", { title: "Welcome", messageHtml: "Please accept the network policy to continue." }),
       node("LOGICAL_SPLIT", "Device check", {}, { options: [
-        // Confirmed on a real device (2026-10-13): a MacBook reports a device type containing "Desktop". What phones report is not known yet,
-        // so the other branch is "does not contain Desktop" rather than a guessed word.
+        // Confirmed on real devices (2026-10-13): a MacBook reports a device type containing "Desktop", an iPhone one containing "Mobile".
+        // What tablets report is not known, so tablets may match neither branch.
         { ...opt("Computer", "", [cert], [{ variable: "CP_DEVICE_TYPE", operation: "CONTAINS", value: "Desktop" }]) },
-        { ...opt("Phone or tablet", "", [dpsk("Mobile passphrase", "Phone and tablet devices", "Corp-Mobile", { deviceCountLimit: 2 })], [{ variable: "CP_DEVICE_TYPE", operation: "DOES_NOT_CONTAIN", value: "Desktop" }]) },
+        { ...opt("Phone", "", [dpsk("Mobile passphrase", "Phone devices", "Corp-Mobile", { deviceCountLimit: 2 })], [{ variable: "CP_DEVICE_TYPE", operation: "CONTAINS", value: "Mobile" }]) },
       ] }),
     ],
   };
@@ -72,7 +72,7 @@ function samples() {
   return [
     { id: "school", name: "School: student / teacher / guest", blurb: "A choice at the start. Students and teachers sign in with LDAP and get their own DPSK pools; guests give details and get a one-day passphrase. Includes a custom look.", workflow: school() },
     { id: "employee-guest", name: "Employee (LDAP) or guest (DPSK)", blurb: "Employees sign in with the directory and get a staff passphrase. Guests accept terms, give an email and get a one-day passphrase.", workflow: employeeGuest() },
-    { id: "by-device", name: "Computers vs phones and tablets", blurb: "A logical split by device type: computers (device type contains Desktop, confirmed on a MacBook) get a certificate, everything else gets a passphrase.", workflow: byDevice() },
+    { id: "by-device", name: "Computers vs phones", blurb: "A logical split by device type: computers (device type contains Desktop) get a certificate, phones (contains Mobile) get a passphrase. Both values confirmed on real devices; tablets not tested.", workflow: byDevice() },
   ].map((s) => ({ ...s, workflow: { ...s.workflow, source: { sample: s.id, sampleNote: s.blurb } } }));
 }
 
