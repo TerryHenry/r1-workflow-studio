@@ -1,7 +1,11 @@
-# cloudpath-to-r1
+# R1 Workflow Studio
 
-Reads enrollment workflows out of a Cloudpath admin UI and plans their RUCKUS One equivalents.
-Zero dependencies (Node 18+). It only reads from Cloudpath; the R1 side does not exist yet.
+Build RUCKUS One enrollment workflows visually, or read them out of Cloudpath and convert them. (The repository and folder are still called `cloudpath-to-r1`.)
+
+Start it with `node bin/ui.js` and open http://127.0.0.1:8787. You can design a workflow from scratch, open an existing R1 workflow
+as an editable copy, or read workflows out of a Cloudpath admin UI and convert them. Nothing is sent to RUCKUS One until you preview
+exactly what would be created and confirm it. Zero dependencies (Node 18+). It only reads from Cloudpath, and only creates new things
+in RUCKUS One (never edits or deletes what is already there, apart from undoing its own creations).
 
 Cloudpath has no workflow export and its REST API does not expose workflow definitions (as far as we could
 find), so the crawler reads the admin pages. Written against Cloudpath 6.0.6056; other versions may differ.
@@ -22,7 +26,7 @@ find), so the crawler reads the admin pages. Written against Cloudpath 6.0.6056;
 
 `npm test` runs the converter tests.
 
-## Visual editor (`node bin/ui.js`)
+## The studio (`node bin/ui.js`)
 Open http://127.0.0.1:8787 (local only). It shows a workflow as a flow diagram (Start, step cards, choices as side-by-side
 branches, End) and lets you change it before anything reaches RUCKUS One:
 - **Open** a converted Cloudpath workflow (red dashed cards are steps R1 has no equivalent for: replace or delete them), a saved
@@ -74,7 +78,7 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
   only known step types and fields are kept, ids are made fresh, sizes are capped, unknown step types become red placeholders, and the
   result goes through the same Problems check, preview and typed confirmation as anything else. Steps that point at R1 objects (DPSK pools,
   templates, ...) do so by id, which only means something in the tenant the file came from: the editor warns and flags the ones that
-  don't exist where you are. Drafts saved by the editor open as files too. Format: `{ format: "cloudpath-to-r1", version: 1, kind, name,
+  don't exist where you are. Drafts saved by the editor open as files too. Format (the id `cloudpath-to-r1` is kept so earlier files still open): `{ format: "cloudpath-to-r1", version: 1, kind, name,
   exportedAt, data }` (`src/exchange.js`).
 - **Cloudpath vs R1 chart** (left list, or `node bin/coverage.js`, which writes `data/cloudpath-vs-r1.html` and `.csv`): what is in a
   Cloudpath workflow, what it becomes in RUCKUS One and what can't be converted. Counts come from your crawl (steps per type, objects, how

@@ -43,7 +43,7 @@ function createSession(origin, { fetchImpl = fetch, timeoutMs = 45000 } = {}) {
       let res;
       try {
         res = await fetchImpl(url, { method, redirect: "manual", body: hop === 0 ? body : undefined, signal: AbortSignal.timeout(timeoutMs),
-          headers: { Accept: "text/html,*/*", "User-Agent": "cloudpath-to-r1", ...headers, ...(cookies.header() ? { Cookie: cookies.header() } : {}) } });
+          headers: { Accept: "text/html,*/*", "User-Agent": "R1-Workflow-Studio", ...headers, ...(cookies.header() ? { Cookie: cookies.header() } : {}) } });
       } catch (e) {
         const code = (e && e.cause && e.cause.code) || (e && e.name === "TimeoutError" ? "timed out" : "");
         throw fail("Could not reach " + new URL(origin).host + (code ? " (" + code + ")" : "") + ". Check the address and your network.", 502);

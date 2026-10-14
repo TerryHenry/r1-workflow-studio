@@ -119,7 +119,7 @@ class Builder {
     if (have) { this.reused.push("Wi-Fi network " + ssid); return have.id; }
     if (this.made["net:" + lc(ssid)]) return this.made["net:" + lc(ssid)];
     this.announce("Wi-Fi network", ssid);
-    const net = await this.api.write("POST", "/wifiNetworks", { type: "dpsk", name: ssid, description: "Created by cloudpath-to-r1", useDpskService: true,
+    const net = await this.api.write("POST", "/wifiNetworks", { type: "dpsk", name: ssid, description: "Created by R1 Workflow Studio", useDpskService: true,
       wlan: clean({ ssid, wlanSecurity: "WPA2Personal", vlanId: vlan || this.opts.vlan }) });
     let id = idOf(net);
     if (this.api.apply && !id) {                                   // R1 answers with a request id only: find the network by SSID
@@ -179,7 +179,7 @@ class Builder {
     }
     const v = info.validity || { type: "YEARS", value: 1 };
     const nb = info.notBefore || { type: "DAYS", value: 0 };
-    const body = clean({ name, description: info.description || (info.issuingCa ? "Created from Cloudpath certificate template " + name : "Created with cloudpath-to-r1"), caType: "ONBOARD", identityGroupId: groupId, keyLength: info.keyLength || 2048,
+    const body = clean({ name, description: info.description || (info.issuingCa ? "Created from Cloudpath certificate template " + name : "Created with R1 Workflow Studio"), caType: "ONBOARD", identityGroupId: groupId, keyLength: info.keyLength || 2048,
       algorithm: ["SHA_1", "SHA_256", "SHA_384", "SHA_512"].includes(info.algorithm) ? info.algorithm : "SHA_256",
       onboard: clean({ commonNamePattern: info.cnPattern || "$(USERNAME)", certificateType: "CLIENT", notAfterType: v.type, notAfterValue: v.value, notBeforeType: nb.type, notBeforeValue: nb.value,
         emailPattern: info.emailPattern || undefined, organizationPattern: info.organization, organizationUnitPattern: info.organizationUnit, localityPattern: info.locality, statePattern: info.state, countryPattern: info.country }) });

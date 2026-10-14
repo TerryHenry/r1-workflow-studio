@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // node bin/ui.js [--port 8787] [--offline]
-// Opens the visual workflow editor at http://127.0.0.1:8787 : view a converted Cloudpath workflow or build an R1 workflow
+// Opens R1 Workflow Studio (the visual workflow editor) at http://127.0.0.1:8787 : view a converted Cloudpath workflow or build an R1 workflow
 // from scratch, configure every step, preview exactly what would change in RUCKUS One, then apply.
 const fs = require("fs");
 const path = require("path");
@@ -26,7 +26,7 @@ if (!args.includes("--offline")) {
 
 const server = createUiServer({ client, connection, crawl, mapping, root, log: (l) => console.error(l) });
 server.listen(port, "127.0.0.1", () => {
-  console.log(`Workflow editor: http://127.0.0.1:${port}`);
+  console.log(`R1 Workflow Studio: http://127.0.0.1:${port}`);
   console.log(client ? "Connected to RUCKUS One (reads now; writes only after you preview and apply)." : "Offline: no RUCKUS One connection.");
   console.log(crawl ? `Cloudpath workflows loaded from the crawl (${crawl.workflows.length}).` : "No Cloudpath crawl found: starting from a blank workflow.");
 });

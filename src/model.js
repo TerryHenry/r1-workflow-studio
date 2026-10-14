@@ -1,4 +1,4 @@
-// The editable workflow model behind the visual editor.
+// The editable workflow model behind R1 Workflow Studio.
 //
 //   workflow = { name, description, steps: [node] }
 //   node     = { id, type, name, params: {...}, options?: [{ id, name, text, steps: [node] }], source?: {...} }
@@ -623,7 +623,7 @@ function toBuildNodes(steps, inv = {}) {
 function stripEmpty(o) { return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null && v !== "")); }
 
 function toBuildWorkflow(wf, inv) {
-  return { name: wf.name, description: wf.description || "Built with the workflow editor", steps: toBuildNodes(wf.steps, inv), look: wf.look && wf.look.welcomeTitle !== undefined ? wf.look : undefined };
+  return { name: wf.name, description: wf.description || "Built with R1 Workflow Studio", steps: toBuildNodes(wf.steps, inv), look: wf.look && wf.look.welcomeTitle !== undefined ? wf.look : undefined };
 }
 
 // A readable outline for logs and tests.

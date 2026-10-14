@@ -1,4 +1,4 @@
-// Local server for the visual workflow editor (ui/index.html). Zero dependencies.
+// Local server for R1 Workflow Studio, the visual workflow editor (ui/index.html). Zero dependencies.
 //
 // Safety rules, because this can write to a live RUCKUS One tenant:
 //  - listens on 127.0.0.1 only, rejects requests whose Host is not localhost, and every POST needs the page's secret token;

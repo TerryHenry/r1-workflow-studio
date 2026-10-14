@@ -194,7 +194,7 @@ th,td{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px soli
 <div class="card">${summary}</div>
 ${table}
 <h2>In RUCKUS One, not in Cloudpath's workflows</h2><div class="tw"><table><thead><tr><th>RUCKUS One</th><th>Notes</th></tr></thead><tbody>${r1}</tbody></table></div>
-<p class="foot">Evidence: <b>live</b> = confirmed against a real RUCKUS One tenant; <b>docs</b> = from RUCKUS's API documents, not tried live; <b>assumed</b> = our reading, check it; <b>not crawled</b> = the tool doesn't read this part of Cloudpath. ${csvHref ? `<a href="${esc(csvHref)}" download="cloudpath-vs-r1.csv">Download as CSV</a>. ` : ""}Made ${esc(data.generatedAt.slice(0, 10))} by cloudpath-to-r1.</p>
+<p class="foot">Evidence: <b>live</b> = confirmed against a real RUCKUS One tenant; <b>docs</b> = from RUCKUS's API documents, not tried live; <b>assumed</b> = our reading, check it; <b>not crawled</b> = the tool doesn't read this part of Cloudpath. ${csvHref ? `<a href="${esc(csvHref)}" download="cloudpath-vs-r1.csv">Download as CSV</a>. ` : ""}Made ${esc(data.generatedAt.slice(0, 10))} by R1 Workflow Studio.</p>
 </main></body></html>`;
 }
 
