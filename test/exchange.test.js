@@ -175,6 +175,8 @@ test("secrets are never kept in a crawl: removed on the way in, from saved files
   assert.equal(r.removed, 4);
   assert.deepEqual([f[0].sharedSecret, f[1].googleSecret, f[1].googleApiKey, f[1].defaultPassword], ["[removed]", "[removed]", "[removed]", "[removed]"]);
   assert.equal(f[0].sharedSecretDescription, "Shared"); assert.equal(f[1].custom1AccessTokenEndpoint, "https://x/token"); assert.equal(f[1].prompt2Variable, "Password"); assert.equal(f[1].passwordDescription, "Password");
+  const tipped = redact({ workflows: [{ name: "w", steps: [{ kind: "ss", links: [{ text: "Prompt", tooltip: "Shared secret: example-secret\nMore: fine" }] }] }] });
+  assert.equal(tipped.crawl.workflows[0].steps[0].links[0].tooltip, "Shared secret: [removed]\nMore: fine"); assert.equal(tipped.removed, 1);
   assert.equal(raw.workflows[0].steps[0].fields.sharedSecret, "example-secret", "works on a copy");
   assert.equal(redact(r.crawl).removed, 0, "idempotent");
   const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
@@ -183,5 +185,6 @@ test("secrets are never kept in a crawl: removed on the way in, from saved files
   assert.equal(require("../src/crawls").redactSaved(root), 2);
   assert.ok(!fs.readFileSync(path.join(root, "data", "crawl.json"), "utf8").includes("example-secret"));
   assert.ok(!fs.readFileSync(path.join(root, "data", "crawls", "a.json"), "utf8").includes("example-secret"));
-  assert.match(fs.readFileSync(path.join(__dirname, "..", "crawl", "crawl.browser.js"), "utf8"), /fields\[n\] = redact\(n, e\.value\)/);
+  const script = fs.readFileSync(path.join(__dirname, "..", "crawl", "crawl.browser.js"), "utf8");
+  assert.match(script, /fields\[n\] = redact\(n, e\.value\)/); assert.match(script, /tooltip: tip\(/);
 });

@@ -18,6 +18,7 @@ function validateCrawl(j) {
 // catches crawls made by an older crawler. Descriptions, labels, endpoints and the like are not secrets.
 const SECRET = /secret|password|passphrase|api.?key|consumer.?key|private.?key|access.?key|token/i;
 const NOT_SECRET = /(description|label|caption|regex|variable|required|endpoint|url|file|name|supported|rotationschedule|length)$/i;
+const TIP = /((?:secret|password|passphrase|api ?key|token)[^:\n]{0,24}:[ \t]*)(?!\[removed\])[^\n]+/gi;
 // Returns { crawl, removed } where removed is how many values were replaced. Works on a copy.
 function redact(j) {
   let removed = 0;
@@ -26,7 +27,9 @@ function redact(j) {
     if (x && typeof x === "object") {
       const o = {};
       for (const [k, v] of Object.entries(x)) {
-        if (typeof v === "string" && v && v !== "[removed]" && SECRET.test(k) && !NOT_SECRET.test(k)) { o[k] = "[removed]"; removed++; } else o[k] = walk(v);
+        if (typeof v === "string" && v && v !== "[removed]" && SECRET.test(k) && !NOT_SECRET.test(k)) { o[k] = "[removed]"; removed++; }
+        else if (typeof v === "string" && TIP.test(v)) { o[k] = v.replace(TIP, "$1[removed]"); if (o[k] !== v) removed++; }       // tooltips like "Shared secret: example-secret"
+        else o[k] = walk(v);
       }
       return o;
     }

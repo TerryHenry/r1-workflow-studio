@@ -13,6 +13,7 @@
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   // Secrets are never kept: shared passphrases, API keys, OAuth secrets, default passwords. Descriptions, labels and endpoints are fine.
   const SECRET = /secret|password|passphrase|api.?key|consumer.?key|private.?key|access.?key|token/i, NOT_SECRET = /(description|label|caption|regex|variable|required|endpoint|url|file|name|supported|rotationschedule|length)$/i;
+  const tip = (s) => (s || "").replace(/((?:secret|password|passphrase|api ?key|token)[^:\n]{0,24}:[ \t]*)[^\n]+/gi, "$1[removed]");   // tooltips such as "Shared secret: …"
   const redact = (name, value) => (SECRET.test(name) && !NOT_SECRET.test(name) && value ? "[removed]" : value);
   const PLUGIN = /\/?([A-Za-z]+)\/WorkflowPlugin-([0-9a-f-]+)/;
 
@@ -46,13 +47,13 @@
       const title = el.querySelector(".cp-list-item-title");
       const isResult = el.classList.contains("cp-list-item-result");
       const links = title ? [...title.querySelectorAll("a[href]")].filter((a) => !a.closest(".cp-list-item-buttonBar")).map((a) => ({
-        text: clean(a.textContent), href: a.getAttribute("href"), tooltip: a.getAttribute("data-tooltip-message") || "" })) : [];
+        text: clean(a.textContent), href: a.getAttribute("href"), tooltip: tip(a.getAttribute("data-tooltip-message")) })) : [];
       const opts = el.querySelectorAll(".cp-list-item-buttonBar-buttons .cp-list-item-buttonBar-button");
       const options = [...opts].map((b, i) => {
         const sel = [...b.querySelectorAll("a")].find((a) => /workflowPluginPk=/.test(a.getAttribute("onclick") || ""));
         const ed = b.querySelector('a[href*="/item/"]');
         const q = sel && sel.getAttribute("onclick").match(/workflowPluginPk=(\d+)&index=(\d+)/);
-        return { index: i, name: sel ? clean(sel.textContent) : "", tooltip: sel ? sel.getAttribute("data-tooltip-message") || "" : "",
+        return { index: i, name: sel ? clean(sel.textContent) : "", tooltip: sel ? tip(sel.getAttribute("data-tooltip-message")) : "",
           selectKey: q ? q[1] : null, itemEdit: ed ? ed.getAttribute("href") : null,
           selected: /selected-/.test(b.className) && !/unselected/.test(b.className) };
       }).filter((o) => o.name || o.itemEdit);
