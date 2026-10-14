@@ -114,7 +114,7 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
   }
   const needClient = () => { if (!client) throw httpError(409, "Not connected to RUCKUS One (started with --offline)."); };
 
-  function setCrawl(j) { crawls.validateCrawl(j); if (crawl) crawls.saveCrawl(root, crawl); crawls.activate(root, j); crawl = j; crawlStamp++; }   // what was loaded is kept before it is replaced
+  function setCrawl(j) { crawls.validateCrawl(j); j = crawls.redact(j).crawl; if (crawl) crawls.saveCrawl(root, crawl); crawls.activate(root, j); crawl = j; crawlStamp++; }   // what was loaded is kept before it is replaced
   function connectionsState() {
     const s = conns.summary(root);
     return {

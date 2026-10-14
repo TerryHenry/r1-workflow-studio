@@ -12,7 +12,9 @@ const val = (n) => { const i = args.indexOf("--" + n); return i >= 0 ? args[i + 
 const port = Number(val("port") || 8787);
 const read = (f) => (fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : null);
 
-const crawl = read(val("crawl") || path.join(root, "data", "crawl.json"));
+const crawlsMod = require("../src/crawls");
+{ const n = crawlsMod.redactSaved(root); if (n) console.log(`Removed secrets (shared passphrases, API keys, default passwords) from ${n} saved crawl file(s).`); }
+const crawl = (() => { const j = read(val("crawl") || path.join(root, "data", "crawl.json")); return j ? crawlsMod.redact(j).crawl : null; })();
 const mapping = read(val("mapping") || path.join(root, "data", "mapping.json")) || {};
 for (const g of Object.keys(mapping)) for (const k of Object.keys(mapping[g])) if (!mapping[g][k]) delete mapping[g][k];
 // The connection to start with: --offline, else the one last used in the Connections dialog, else the default (environment or Visitor Desk config).

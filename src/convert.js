@@ -145,7 +145,7 @@ function output(step, ctx) {
   }
   // "Move user to <device configuration>" after a DPSK / MAC step: the earlier R1 action already hands over the credential.
   const prev = ctx.prev && ctx.prev.kind;
-  if (prev === "dpsk" || prev === "registration") {
+  if (ctx.onboarded || prev === "dpsk" || prev === "registration") {
     return { support: "auto", end: true, notes: ["Cloudpath moves the user to '" + config + "'. In R1 the path ends after the DPSK/MAC action; whether the visitor then stays on the workflow's own network or joins the pool's SSID depends on how the networks are set up (unconfirmed)."], action: null };
   }
   const net = mapped(ctx.mapping, "networks", config);
@@ -158,8 +158,52 @@ function output(step, ctx) {
 
 const manual = (why) => () => ({ support: "manual", notes: [why], action: null });
 
+// Cloudpath fills ${VARIABLE} / $VARIABLE in message text (e.g. $DPSK); R1 messages are fixed text.
+const VAR = /\$\{[^}]+\}|\$[A-Z][A-Z0-9_]+/g;
+
+function message(step) {
+  const f = step.fields || {};
+  const title = trunc(noVars(val(f, "title")) || val(f, "name") || "Notice", 100);
+  let text = val(f, "messageHtml").trim() || title;
+  const notes = [];
+  const vars = [...new Set(text.match(VAR) || [])];
+  if (vars.length) notes.push("The text uses Cloudpath variables (" + vars.join(", ") + "), which R1 does not fill in: they show as typed. A DPSK or certificate step in R1 shows the credential itself, so reword this message.");
+  if (text.length > 1000) { text = trunc(text, 1000); notes.push("The message was over R1's 1000 character limit and was cut."); }
+  if (flag(f, "killSession")) notes.push("Cloudpath ends the session after this message.");
+  return { support: "auto", notes, action: { actionType: "DISPLAY_MESSAGE", name: trunc(val(f, "name") || title, 100), title, messageHtml: text, bottomLabel: val(f, "bottomLabel") || undefined,
+    backButtonText: val(f, "backButtonText") || "Back", continueButtonText: val(f, "continueButtonText") || "Continue", displayBackButton: val(f, "displayBackButton") !== "0", displayContinueButton: val(f, "displayContinueButton") !== "0", killSession: flag(f, "killSession") } };
+}
+
+// "Prompt the user for information": up to seven fields, each a Cloudpath variable name, label and optional pattern.
+const R1_VARS = [[/^(user ?name|login|account)$/i, "USER_NAME"], [/^e-?mail/i, "EMAIL"], [/^(phone|mobile|cell|sms)/i, "PHONE"], [/^first/i, "FIRST_NAME"], [/^(last|sur)/i, "LAST_NAME"]];
+function dataPrompt(step) {
+  const f = step.fields || {};
+  const vars = [], notes = []; let free = 0, password = false;
+  for (let i = 1; i <= 7; i++) {
+    const name = val(f, "prompt" + i + "Variable").trim(), label = val(f, "prompt" + i + "Label").trim();
+    if (!name && !label) continue;
+    if (/pass(word|phrase)|^pin$/i.test(name + " " + label)) { password = true; continue; }
+    const hit = R1_VARS.find(([re]) => re.test(name)), type = hit ? hit[1] : (++free <= 6 ? "INPUT_FIELD_" + free : null);
+    if (!type) { notes.push("R1 asks for at most six custom fields: “" + (label || name) + "” was left out."); continue; }
+    vars.push({ label: trunc(label || name, 100), type, regex: val(f, "prompt" + i + "Regex") || undefined });
+  }
+  if (password) notes.push("Cloudpath also asks for a password. R1's form cannot ask for one: checking credentials is the job of a directory (LDAP) sign-in step.");
+  if (!vars.length) return { support: "manual", notes: ["This prompt has no fields R1 can ask for." + (password ? " " + notes[0] : "")], action: null };
+  return { support: password ? "manual" : "auto", notes: password ? ["Cloudpath asks for a username and password here (a login), which R1's form step can't do: use an LDAP sign-in step, and a form for the other details.", ...notes] : notes,
+    action: { actionType: "DATA_PROMPT", name: trunc(val(f, "name") || "Prompt", 100), title: trunc(noVars(val(f, "title")) || val(f, "name") || "Tell us about you", 100), messageHtml: val(f, "messageHtml") || undefined, displayTitle: true, displayMessageHtml: !!val(f, "messageHtml"), variables: vars } };
+}
+
+function redirect(step) {
+  const f = step.fields || {}, url = val(f, "workflowEmbeddableRedirect.redirectUrl");
+  return { support: "manual", notes: ["Cloudpath sends the visitor on to " + (url || "a web address") + (flag(f, "workflowEmbeddableRedirect.killSession") ? " and ends the session" : "") + (flag(f, "workflowEmbeddableRedirect.usePost") ? ", using a POST" : "") +
+    ". R1 has a redirect step (captive portal), but it counts as the branch's one onboarding step, so it cannot follow a DPSK, MAC or certificate step. If this is the branch's only onboarding step, add a “Captive portal redirect” step with this address; otherwise drop it."], action: null };
+}
+
 const RULES = {
   aup, dpsk, selection, registration, output,
+  message, dataPrompt, redirect,
+  oauth: manual("Cloudpath signs the visitor in with a social account (Google, Facebook, LinkedIn or a custom OAuth provider). R1's identity provider step uses a SAML or OIDC provider set up in R1, which is not the same thing: there is no direct equivalent, and the provider keys were not copied."),
+  ss: manual("Cloudpath asks the visitor for a shared passphrase. R1 has no step that checks one. A shared passphrase on a Wi-Fi network is a PSK network (or a DPSK pool for personal ones). The passphrase itself was not copied."),
   oob: manual("The editor converts this automatically to an R1 guest network (a workflow that is only a voucher sign-in opens as one; a voucher branch inside a choice moves out to one). Cloudpath sends a voucher code by email or SMS and the visitor enters it: in R1 terms that is a guest pass. The R1 workflow action list has no guest-pass action (DATA_PROMPT only collects email/phone), so this part moves to an R1 guest network of type GuestPass (passes made by sponsors, the guest API, or bulk import) rather than a workflow step. The AUP becomes the network's terms text, the SMS/email choice becomes the pass delivery methods. See README 'Guest networks'."),
   credprompt: manual("Cloudpath asks for a username and password checked against its own user database or a directory. R1 offers LDAP_AUTH_PROVIDER / IDP_AUTH_PROVIDER (external directory, SSO); an internal Cloudpath user database has no equivalent."),
   concurrent: manual("Cloudpath reminds the user to remove old certificates. R1 has no such step; use DISPLAY_MESSAGE to tell them, or drop it."),
@@ -167,10 +211,11 @@ const RULES = {
 
 function convertSteps(steps, ctx) {
   const out = [];
-  let prev = ctx.prev;
+  let prev = ctx.prev, onboarded = !!ctx.onboarded;               // onboarded: an earlier step on this path already gives the visitor access (R1 allows one)
   for (const s of steps) {
     const rule = RULES[s.kind] || manual("Step type '" + s.kind + "' is not known to this tool.");
-    const r = rule(s, { ...ctx, prev });
+    const r = rule(s, { ...ctx, prev, onboarded });
+    if (r.action && ["DPSK", "MAC_REG", "CERT_TEMPLATE", "PASSPHRASE", "CAPTIVE_PORTAL"].includes(r.action.actionType)) onboarded = true;
     const node = { cloudpath: { kind: s.kind, number: s.number, name: val(s.fields, "name"), label: clean(s.label || "") }, support: r.support,
       needs: r.needs || [], notes: r.notes || [], r1: r.action, ref: r.ref };
     if (r.end) node.end = true;
@@ -179,7 +224,7 @@ function convertSteps(steps, ctx) {
         name: o.name, criteria: (o.criteria || "").replace(/^.*criteria:\s*/s, "").replace(/\s+/g, " ").trim(),
         r1: { actionType: r.split === "FUNCTIONAL" ? "FUNCTIONAL_SPLIT_OPTION" : "USER_SELECTION_SPLIT_OPTION", name: trunc(val(o.fields, "name") || o.name, 100),
           messageHtml: optionText(o) },
-        steps: convertSteps(o.steps || [], { ...ctx, prev: s }),
+        steps: convertSteps(o.steps || [], { ...ctx, prev: s, onboarded }),
       }));
     }
     out.push(node);

@@ -371,6 +371,12 @@ function fromPlan(planWf, inv, objects) {
       } else if (t === "USER_SELECTION_SPLIT") {
         node = newNode("USER_SELECTION_SPLIT", n.r1.name);
         node.params.title = "Choose one"; node.options = [];
+      } else if (t === "DISPLAY_MESSAGE") {
+        node = newNode("DISPLAY_MESSAGE", n.r1.name);
+        Object.assign(node.params, pick(n.r1, ["title", "messageHtml", "backButtonText", "continueButtonText", "displayBackButton", "displayContinueButton", "killSession"]), { bottomLabel: n.r1.bottomLabel || "" });
+      } else if (t === "DATA_PROMPT") {
+        node = newNode("DATA_PROMPT", n.r1.name);
+        Object.assign(node.params, pick(n.r1, ["title", "messageHtml", "displayTitle", "displayMessageHtml"]), { messageHtml: n.r1.messageHtml || "", variables: n.r1.variables });
       } else if (t === "PASSPHRASE") {
         node = newNode("PASSPHRASE", n.r1.name);
         const net = find(inv.networks, n.ref && n.ref.network);

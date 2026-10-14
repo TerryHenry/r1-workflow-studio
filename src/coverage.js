@@ -26,6 +26,16 @@ const CATALOG = [
     note: "R1's path simply ends after the DPSK or MAC step. Whether the visitor stays on the workflow network or joins the pool's SSID depends on your networks (unconfirmed)." },
   { id: "oob", group: "Workflow steps", cloudpath: "Voucher or verification code", r1: "Guest network (guest pass), not a step", status: "converts", evidence: "live",
     note: "Automatic: a voucher and guest pass are the same thing. A workflow that is only a voucher sign-in opens as a ready guest network; a voucher branch inside a choice moves out of the workflow into a companion guest network. Not copied: the voucher lists (pre-made codes), and any certificate Cloudpath assigned after the voucher." },
+  { id: "message", group: "Workflow steps", cloudpath: "Display a message", r1: "Show a message", status: "converts", evidence: "live",
+    note: "Title, text, button labels and whether to end the session carry over. Cloudpath variables in the text (e.g. $DPSK) are not filled in by R1; the DPSK or certificate step shows the credential itself." },
+  { id: "dataprompt", group: "Workflow steps", cloudpath: "Prompt for information (form)", r1: "Prompt for information", status: "converts", evidence: "docs",
+    note: "Username, email, phone, first and last name and up to six custom fields carry over. A password field can't: R1's form doesn't ask for one (use an LDAP sign-in step)." },
+  { id: "redirect", group: "Workflow steps", cloudpath: "Redirect the user to an address", r1: "Captive portal redirect", status: "partial", evidence: "docs",
+    note: "R1's redirect counts as the branch's one onboarding step, so it can't follow a DPSK, MAC or certificate step. Add it by hand when it is the only one; the address is in the step's notes." },
+  { id: "oauth", group: "Workflow steps", cloudpath: "Social login (Google, Facebook, LinkedIn, custom OAuth)", r1: "(none)", status: "none", evidence: "docs",
+    note: "R1's identity provider step uses SAML or OIDC set up in R1: not the same thing. Provider keys are never copied." },
+  { id: "ss", group: "Workflow steps", cloudpath: "Prompt for a shared passphrase", r1: "(none)", status: "none", evidence: "docs",
+    note: "No R1 step checks a shared passphrase. A shared passphrase is a PSK network; personal ones are DPSK. The passphrase isn't copied." },
   { id: "credprompt", group: "Workflow steps", cloudpath: "Username and password prompt", r1: "LDAP or SSO sign-in step", status: "partial", evidence: "docs",
     note: "Works for an external directory (LDAP) or SSO. A Cloudpath internal user database has no equivalent. The converter leaves a placeholder; you add the sign-in step and the directory profile id." },
   { id: "concurrent", group: "Workflow steps", cloudpath: "Remind the user to remove old certificates", r1: "(none)", status: "none", evidence: "docs",
@@ -69,7 +79,7 @@ function rowId(n) {
   const k = n.cloudpath && n.cloudpath.kind, t = n.r1 && n.r1.actionType;
   if (k === "selection") return t === "FUNCTIONAL_SPLIT" ? "selection-rules" : "selection-open";
   if (k === "output") return !n.r1 ? "output-end" : t === "CERT_TEMPLATE" ? "output-cert" : "output-network";
-  return { aup: "aup", dpsk: "dpsk", registration: "mac", oob: "oob", credprompt: "credprompt", concurrent: "concurrent" }[k] || null;
+  return { aup: "aup", dpsk: "dpsk", registration: "mac", oob: "oob", credprompt: "credprompt", concurrent: "concurrent", message: "message", dataPrompt: "dataprompt", redirect: "redirect", oauth: "oauth", ss: "ss" }[k] || ("unknown:" + k);
 }
 
 function coverage(crawl, mapping = {}, now = new Date()) {
@@ -86,7 +96,12 @@ function coverage(crawl, mapping = {}, now = new Date()) {
     const counts = { converts: 0, mapping: 0, partial: 0, none: 0 }, steps = [];
     (function walk(nodes) {
       for (const n of nodes) {
-        const id = rowId(n), row = id && byId[id];
+        const id = rowId(n);
+        if (id && !byId[id]) {                                           // a step type this tool has never seen: counted, as "no equivalent"
+          const row = { id, group: "Workflow steps", cloudpath: "Step type “" + id.slice(8) + "” (not known to this tool)", r1: "(unknown)", status: "none", evidence: "assumed", note: "This tool doesn't know this Cloudpath step type yet, so it can't convert it.", count: 0 };
+          byId[id] = row; rows.splice(rows.findIndex((r) => r.id === "credprompt"), 0, row);
+        }
+        const row = id && byId[id];
         if (row) { row.count++; counts[CLASS_OF[row.status]]++; steps.push(id); }
         for (const o of n.options || []) walk(o.steps);
       }

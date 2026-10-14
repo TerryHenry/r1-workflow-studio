@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 
 const root = path.join(__dirname, "..");
+const { redact } = require("../src/crawls");
 const PORT = Number(process.env.PORT || 8765);
 const cors = {
   "access-control-allow-origin": "*",
@@ -26,7 +27,7 @@ http.createServer((req, res) => {
     req.on("end", () => {
       try {
         const body = Buffer.concat(chunks).toString("utf8");
-        const j = JSON.parse(body);
+        const j = redact(JSON.parse(body)).crawl;
         fs.mkdirSync(path.join(root, "data"), { recursive: true });
         fs.writeFileSync(path.join(root, "data", "crawl.json"), JSON.stringify(j, null, 2), { mode: 0o600 });
         console.log("saved data/crawl.json:", j.workflows.length, "workflows from", j.source);

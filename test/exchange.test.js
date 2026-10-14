@@ -121,3 +121,67 @@ test("voucher sign-ins convert automatically: a voucher-only workflow is one gue
   const cov = coverage(crawl, {});
   assert.equal(cov.rows.find((r) => r.id === "oob").status, "converts");
 });
+
+test("message and form steps convert; redirect, social login and shared passphrase are explained, not 'unknown'", () => {
+  const { convertAll } = require("../src/convert");
+  const step = (kind, fields, extra = {}) => ({ kind, number: "1", label: kind, links: [], fields, ...extra });
+  const wf = { pk: 1, name: "New kinds", steps: [
+    step("aup", { name: "A", title: "t" }),
+    step("dataPrompt", { name: "Details", title: "Your details", prompt1Variable: "Username", prompt2Variable: "Email", prompt3Label: "Room", prompt3Variable: "Room", prompt4Variable: "Phone" }),
+    step("dataPrompt", { name: "Login", prompt1Variable: "Username", prompt2Variable: "Password" }),
+    step("message", { name: "Done", title: "DPSK has been Created", messageHtml: "Join CVG and use $DPSK", displayContinueButton: "0", displayBackButton: "1", killSession: "0", backButtonText: "", continueButtonText: "" }),
+    step("redirect", { name: "Go", "workflowEmbeddableRedirect.redirectUrl": "https://example.com", "workflowEmbeddableRedirect.killSession": "1" }),
+    step("oauth", { name: "Google" }), step("ss", { name: "Crew", sharedSecret: "[removed]" }), step("mystery", { name: "?" }),
+  ] };
+  const plan = convertAll({ workflows: [wf], objects: {} }, {}).workflows[0];
+  const by = Object.fromEntries(plan.steps.map((s) => [s.cloudpath.kind + (s.cloudpath.name === "Login" ? "-login" : ""), s]));
+  assert.equal(by.message.support, "auto"); assert.equal(by.message.r1.actionType, "DISPLAY_MESSAGE");
+  assert.equal(by.message.r1.displayContinueButton, false); assert.equal(by.message.r1.backButtonText, "Back");
+  assert.ok(by.message.notes.some((n) => /\$DPSK/.test(n)), "Cloudpath variables are flagged");
+  const dp = by.dataPrompt; assert.equal(dp.support, "auto");
+  assert.deepEqual(dp.r1.variables.map((v) => v.type), ["USER_NAME", "EMAIL", "INPUT_FIELD_1", "PHONE"]);
+  assert.equal(by["dataPrompt-login"].support, "manual"); assert.ok(by["dataPrompt-login"].notes.some((n) => /password/.test(n)));
+  for (const k of ["redirect", "oauth", "ss"]) { assert.equal(by[k].support, "manual"); assert.ok(!/not known/.test(by[k].notes.join(" ")), k + " has its own explanation"); }
+  assert.match(by.redirect.notes[0], /https:\/\/example\.com/); assert.match(by.redirect.notes[0], /ends the session/);
+  assert.match(by.mystery.notes[0], /not known/);
+  const model = require("../src/model").fromPlan(plan, inv, {});
+  const types = model.steps.map((n) => n.type);
+  assert.deepEqual(types.slice(0, 3), ["AUP", "DATA_PROMPT", "DISPLAY_MESSAGE"].slice(0, 2).concat(["UNSUPPORTED"]));
+  assert.equal(model.steps.find((n) => n.type === "DISPLAY_MESSAGE").params.title, "DPSK has been Created");
+  assert.equal(model.steps.find((n) => n.type === "DATA_PROMPT").params.variables.length, 4);
+  // the chart counts every step, including a type it has never seen
+  const cov = coverage({ workflows: [wf], objects: {} }, {});
+  assert.equal(cov.rows.filter((r) => r.group === "Workflow steps").reduce((a, r) => a + (r.count || 0), 0), cov.totals.converts + cov.totals.mapping + cov.totals.partial + cov.totals.none);
+  assert.ok(cov.rows.some((r) => /mystery/.test(r.cloudpath)));
+});
+
+test("a path with a DPSK step then a message then a hand-over ends there (one onboarding step per path)", () => {
+  const { convertAll } = require("../src/convert");
+  const wf = { pk: 2, name: "Onboard once", steps: [
+    { kind: "dpsk", number: "1", label: "d", links: [], fields: { accountDpskPoolPk: "P", name: "d" } },
+    { kind: "message", number: "2", label: "m", links: [], fields: { name: "m", title: "Done", messageHtml: "ok" } },
+    { kind: "output", number: "3", label: "Move user to Net", links: [], fields: { "networkSourceSelection.source": "EXISTING", "networkSourceSelection.existingPk": "Net" } }] };
+  const plan = convertAll({ workflows: [wf], objects: {} }, {}).workflows[0];
+  const model = require("../src/model").fromPlan(plan, inv, {});
+  assert.deepEqual(model.steps.map((n) => n.type), ["DPSK", "DISPLAY_MESSAGE"]);
+});
+
+test("secrets are never kept in a crawl: removed on the way in, from saved files, and by the crawler script", () => {
+  const { redact } = require("../src/crawls");
+  const raw = { source: "x", workflows: [{ name: "w", steps: [{ kind: "ss", fields: { sharedSecret: "example-secret", sharedSecretDescription: "Shared", rotationSchedule: { value: "NONE" } } },
+    { kind: "oauth", fields: { googleSecret: "abc", googleApiKey: "def", custom1AccessTokenEndpoint: "https://x/token", defaultPassword: "test", passwordDescription: "Password", prompt2Variable: "Password" } }] }] };
+  const r = redact(raw);
+  const f = r.crawl.workflows[0].steps.map((s) => s.fields);
+  assert.equal(r.removed, 4);
+  assert.deepEqual([f[0].sharedSecret, f[1].googleSecret, f[1].googleApiKey, f[1].defaultPassword], ["[removed]", "[removed]", "[removed]", "[removed]"]);
+  assert.equal(f[0].sharedSecretDescription, "Shared"); assert.equal(f[1].custom1AccessTokenEndpoint, "https://x/token"); assert.equal(f[1].prompt2Variable, "Password"); assert.equal(f[1].passwordDescription, "Password");
+  assert.equal(raw.workflows[0].steps[0].fields.sharedSecret, "example-secret", "works on a copy");
+  assert.equal(redact(r.crawl).removed, 0, "idempotent");
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "c2r-r-")); fs.mkdirSync(path.join(root, "data", "crawls"), { recursive: true });
+  fs.writeFileSync(path.join(root, "data", "crawl.json"), JSON.stringify(raw)); fs.writeFileSync(path.join(root, "data", "crawls", "a.json"), JSON.stringify(raw));
+  assert.equal(require("../src/crawls").redactSaved(root), 2);
+  assert.ok(!fs.readFileSync(path.join(root, "data", "crawl.json"), "utf8").includes("example-secret"));
+  assert.ok(!fs.readFileSync(path.join(root, "data", "crawls", "a.json"), "utf8").includes("example-secret"));
+  assert.match(fs.readFileSync(path.join(__dirname, "..", "crawl", "crawl.browser.js"), "utf8"), /fields\[n\] = redact\(n, e\.value\)/);
+});

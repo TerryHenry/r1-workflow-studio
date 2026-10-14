@@ -11,6 +11,9 @@
     return r.text();
   };
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+  // Secrets are never kept: shared passphrases, API keys, OAuth secrets, default passwords. Descriptions, labels and endpoints are fine.
+  const SECRET = /secret|password|passphrase|api.?key|consumer.?key|private.?key|access.?key|token/i, NOT_SECRET = /(description|label|caption|regex|variable|required|endpoint|url|file|name|supported|rotationschedule|length)$/i;
+  const redact = (name, value) => (SECRET.test(name) && !NOT_SECRET.test(name) && value ? "[removed]" : value);
   const PLUGIN = /\/?([A-Za-z]+)\/WorkflowPlugin-([0-9a-f-]+)/;
 
   // Form fields of an edit page: effective value, plus the built-in default text for blanks.
@@ -24,7 +27,7 @@
       if (e.type === "checkbox") { fields[n] = e.checked ? e.value : ""; continue; }
       if (e.tagName === "SELECT") { const o = e.selectedOptions[0]; fields[n] = o ? { value: o.value, text: clean(o.textContent) } : ""; continue; }
       if (e.type === "password") continue;
-      fields[n] = e.value;
+      fields[n] = redact(n, e.value);
     }
     return { fields, defaults };
   }

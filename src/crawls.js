@@ -14,6 +14,34 @@ function validateCrawl(j) {
   return j;
 }
 
+// Secrets are not kept in a crawl (shared passphrases, API keys, OAuth secrets, default passwords): the crawler leaves them out, and this
+// catches crawls made by an older crawler. Descriptions, labels, endpoints and the like are not secrets.
+const SECRET = /secret|password|passphrase|api.?key|consumer.?key|private.?key|access.?key|token/i;
+const NOT_SECRET = /(description|label|caption|regex|variable|required|endpoint|url|file|name|supported|rotationschedule|length)$/i;
+// Returns { crawl, removed } where removed is how many values were replaced. Works on a copy.
+function redact(j) {
+  let removed = 0;
+  const walk = (x) => {
+    if (Array.isArray(x)) return x.map(walk);
+    if (x && typeof x === "object") {
+      const o = {};
+      for (const [k, v] of Object.entries(x)) {
+        if (typeof v === "string" && v && v !== "[removed]" && SECRET.test(k) && !NOT_SECRET.test(k)) { o[k] = "[removed]"; removed++; } else o[k] = walk(v);
+      }
+      return o;
+    }
+    return x;
+  };
+  return { crawl: walk(j), removed };
+}
+// Rewrite the saved crawls (and the active one) without secrets. Returns how many files changed.
+function redactSaved(root) {
+  let changed = 0;
+  const files = [activeFile(root), ...listSaved(root).map((s) => path.join(dirOf(root), s.file))];
+  for (const f of files) { const j = read(f); if (!j) continue; const r = redact(j); if (r.removed) { write(f, r.crawl); changed++; } }
+  return changed;
+}
+
 const dirOf = (root) => path.join(root, "data", "crawls");
 const activeFile = (root) => path.join(root, "data", "crawl.json");
 const same = (a, b) => a && b && (a.source || "") === (b.source || "") && (a.crawledAt || "") === (b.crawledAt || "") && a.workflows.length === b.workflows.length;
@@ -30,7 +58,7 @@ function listSaved(root) {
 
 // Save a crawl under a readable name ("cloudpath-lab.example.com_2026-10-13.json"); the same crawl is not saved twice. Returns the file name.
 function saveCrawl(root, j) {
-  validateCrawl(j);
+  validateCrawl(j); j = redact(j).crawl;
   for (const s of listSaved(root)) { const o = read(path.join(dirOf(root), s.file)); if (same(o, j)) return s.file; }
   let host = "cloudpath"; try { host = new URL(j.source).hostname || host; } catch {}
   const day = (String(j.crawledAt || "").slice(0, 10) || new Date().toISOString().slice(0, 10)).replace(/[^\d-]/g, "");
@@ -43,7 +71,7 @@ function saveCrawl(root, j) {
 
 // Make a crawl the active one. What was active is kept in the saved list first, so nothing is lost.
 function activate(root, j) {
-  validateCrawl(j);
+  validateCrawl(j); j = redact(j).crawl;
   const cur = read(activeFile(root));
   if (cur && Array.isArray(cur.workflows)) saveCrawl(root, cur);
   const file = saveCrawl(root, j);
@@ -64,4 +92,4 @@ function deleteSaved(root, file) {
 // Which saved file (if any) is the active crawl.
 function activeInfo(root, j) { if (!j) return null; const s = listSaved(root).find((x) => { const o = read(path.join(dirOf(root), x.file)); return same(o, j); }); return brief(j, s ? s.file : null); }
 
-module.exports = { validateCrawl, listSaved, saveCrawl, activate, loadSaved, deleteSaved, activeInfo };
+module.exports = { redact, redactSaved, validateCrawl, listSaved, saveCrawl, activate, loadSaved, deleteSaved, activeInfo };
