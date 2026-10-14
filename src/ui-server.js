@@ -23,6 +23,7 @@ const conns = require("./connections");
 const crawls = require("./crawls");
 const { buildBrowserScript } = require("./crawlscript");
 const { startCrawlJob, publicJob } = require("./crawl-job");
+const undoMod = require("./undo");
 
 const NAME = /^[\w .()-]{1,80}$/;
 
@@ -181,6 +182,16 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
       return { until: arm.until, script: buildBrowserScript(root, `window.__CRAWL_RECEIVER=${JSON.stringify("http://" + host + "/api/crawl/receive")};window.__CRAWL_CODE=${JSON.stringify(arm.code)};${opts}\n`) };
     },
     "POST /api/connections/cloudpath/disarm": async () => { arm = null; return connectionsState(); },
+    // Undo: remove from RUCKUS One what the studio created, through the connection that created it.
+    "GET /api/undo": async () => ({ ...undoMod.list(dataRoot, connName), connection: connName, live: !!client }),
+    "POST /api/undo": async (b) => {
+      needClient();
+      if (b.confirm !== true) throw httpError(400, "Confirm first.");
+      if (applying) throw httpError(409, "An apply is running. Wait for it to finish.");
+      applying++;
+      try { const r = await undoMod.undo(dataRoot, client, connName, { log, waitMs: pollMs === undefined ? 1000 : pollMs }); inv = null; previews.clear(); return { ...r, ...undoMod.list(dataRoot, connName), connection: connName, live: !!client }; }
+      finally { applying--; }
+    },
     "POST /api/file/export": async (b) => exportFile(b.model),
     "POST /api/file/import": async (b) => importFile(b.text, String(b.fileName || "").slice(0, 200)),
     "POST /api/refresh": async () => ({ inventory: await getInv(true) }),
@@ -220,7 +231,7 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
       if (b.hash !== h || !previews.has(h)) throw httpError(409, "Preview this exact guest network first. It has changed since the last preview, or was never previewed.");
       const r = await runGuest(b.guest, b.options, true);
       previews.delete(h);
-      if (r.created && r.created.length) appendCreated(dataRoot, r.created);
+      if (r.created && r.created.length) appendCreated(dataRoot, r.created, connName);
       await getInv(true);
       return r;
     },
@@ -237,7 +248,7 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
       if (b.hash !== h || !previews.has(h)) throw httpError(409, "Preview this exact template first. It has changed since the last preview, or was never previewed.");
       const r = await runTemplate(b.template, b.options, true);
       previews.delete(h);
-      if (r.created && r.created.length) appendCreated(dataRoot, r.created);
+      if (r.created && r.created.length) appendCreated(dataRoot, r.created, connName);
       await getInv(true);
       return r;
     },
@@ -258,7 +269,7 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
       if (b.hash !== h || !previews.has(h)) throw httpError(409, "Preview this exact workflow first. It has changed since the last preview, or was never previewed.");
       const r = await run(b.workflow, b.options, true);
       previews.delete(h);
-      if (r.created && r.created.length) appendCreated(dataRoot, r.created);
+      if (r.created && r.created.length) appendCreated(dataRoot, r.created, connName);
       await getInv(true);
       return r;
     },

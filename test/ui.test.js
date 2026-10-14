@@ -659,3 +659,36 @@ test("file import/export routes and the coverage page", async () => {
     assert.equal((await s.call("GET", "/coverage", undefined, { host: "evil.example.com" })).status, 403);
   } finally { await s.close(); }
 });
+
+test("undo: lists what the studio created, removes only that, and only through the connection that created it", async () => {
+  const s = await start();
+  try {
+    const empty = (await s.call("GET", "/api/undo")).json(); assert.deepEqual(empty.items, []);
+    const wf = goodWorkflow();
+    const pv = (await s.post("/api/preview", { workflow: wf, options: {} })).json();
+    assert.equal((await s.post("/api/apply", { workflow: wf, options: {}, hash: pv.hash })).status, 200);
+    const l = (await s.call("GET", "/api/undo")).json();
+    assert.ok(l.items.some((x) => x.kind === "workflow" && x.name === "Editor test" && x.canUndo), "the new workflow is listed"); assert.ok(l.items.length >= 2, "its actions too"); assert.equal(l.connection, "default");
+    assert.equal((await s.post("/api/undo", {})).status, 400, "needs confirming");
+    const before = s.fake.calls.filter((c) => c.method === "DELETE").length;
+    const u = (await s.post("/api/undo", { confirm: true })).json();
+    assert.equal(u.left.length, 0); assert.ok(u.deleted.some((x) => x.name === "Editor test")); assert.deepEqual(u.items, []);
+    const dels = s.fake.calls.filter((c) => c.method === "DELETE").slice(before);
+    assert.ok(dels.length >= 2 && /\/workflows\//.test(dels[0].path), "workflows are deleted first, and only what was created");
+    assert.equal(fs.existsSync(path.join(s.root, "data", "created.json")), false, "the list is cleared");
+  } finally { await s.close(); }
+});
+
+test("undo: an entry made through another connection is listed but not deleted from this one", () => {
+  const undo = require("../src/undo"), { appendCreated } = require("../src/ledger");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "c2r-undo-"));
+  appendCreated(root, [{ kind: "workflow", name: "W1", id: "1", del: "/workflows/1" }], "Tenant A");
+  appendCreated(root, [{ kind: "workflow", name: "W2", id: "2", del: "/workflows/2" }], "Tenant B");
+  const l = undo.list(root, "Tenant A");
+  assert.deepEqual(l.items.map((x) => [x.name, x.canUndo]), [["W2", false], ["W1", true]]);
+  const calls = []; const client = { call: async (m, p) => { calls.push(m + " " + p); }, get: async () => { const e = new Error("gone"); e.status = 404; throw e; } };
+  return undo.undo(root, client, "Tenant A", { waitMs: 0 }).then((r) => {
+    assert.deepEqual(calls, ["DELETE /workflows/1"]); assert.equal(r.deleted.length, 1);
+    assert.deepEqual(undo.list(root, "Tenant B").items.map((x) => x.name), ["W2"], "the other connection's entry is kept");
+  });
+});

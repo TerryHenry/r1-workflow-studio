@@ -129,7 +129,7 @@ class Builder {
     if (this.api.apply) this.record("Wi-Fi network", id, ssid, `/wifiNetworks/${id}`);
     if (poolId) await this.api.write("PUT", `/wifiNetworks/${id}/dpskServices/${poolId}`);
     if (this.opts.venueId) await this.api.write("PUT", `/venues/${this.opts.venueId}/wifiNetworks/${id}`, { isAllApGroups: true, allApGroupsRadio: "Both" });
-    else this.notes.push(`Network ${ssid} is not on any venue yet: choose a venue (--venue in the CLI) or activate it in R1.`);
+    else this.notes.push(`Network ${ssid} is not on any venue yet: choose a venue in the box at the top (or with --venue on the command line), or activate it in R1.`);
     return id;
   }
 

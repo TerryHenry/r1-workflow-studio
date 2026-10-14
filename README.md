@@ -1,17 +1,50 @@
+<p align="center"><img src="build/icon.png" alt="R1 Workflow Studio" width="128"></p>
+
 # R1 Workflow Studio
 
-Build RUCKUS One enrollment workflows visually, or read them out of Cloudpath and convert them.
+Design **RUCKUS One enrollment workflows** visually, or read them out of **Cloudpath** and convert them. A desktop app for macOS and Windows.
 
-Start it with `node bin/ui.js` and open http://127.0.0.1:8787. You can design a workflow from scratch, open an existing R1 workflow
-as an editable copy, or read workflows out of a Cloudpath admin UI and convert them. Nothing is sent to RUCKUS One until you preview
-exactly what would be created and confirm it. Zero dependencies (Node 18+). It only reads from Cloudpath, and only creates new things
-in RUCKUS One (never edits or deletes what is already there, apart from undoing its own creations).
+![A workflow in R1 Workflow Studio](docs/images/03-sample-workflow.png)
 
-Cloudpath has no workflow export and its REST API does not expose workflow definitions (as far as we could
-find), so the crawler reads the admin pages. Written against Cloudpath 6.0.6056; other versions may differ.
+## What it does
 
-## Use
-1. Easiest: open the editor (`node bin/ui.js`), Connections → Cloudpath, enter the address, email and password. The rest of this list is the manual way.
+- **Build workflows without code.** Add steps, split visitors by choice or by device, configure DPSK pools, certificates and guest networks, and click through the result as a visitor (**Try it**) before anything exists.
+- **Nothing happens until you say so.** **Preview** shows exactly what would be created; **Apply** needs the workflow's name typed to confirm. It only creates new things (never edits or deletes what's already in RUCKUS One), creates workflows unpublished, and **Undo** removes what it made.
+- **Open what you already have** in RUCKUS One as an editable copy.
+- **Convert Cloudpath.** Enter a Cloudpath address and admin sign-in and it reads every workflow (read-only, password never saved), converts them, explains each step that can't convert, and charts what converts and what doesn't. Vouchers and sponsor requests become guest networks automatically.
+- **Private by design.** Runs only on your computer; API secrets are stored encrypted by the operating system.
+
+## Get it
+
+Download the latest from the repository's **Releases** page:
+
+| | |
+|---|---|
+| **macOS** (Apple silicon) | `R1-Workflow-Studio-<version>-mac-arm64.dmg` (or the `.zip`) |
+| **Windows** (64-bit) | `R1-Workflow-Studio-<version>-win-x64.exe` installer (or the `.zip`) |
+
+The apps are not code-signed, so macOS and Windows ask for a one-time approval on first open: see **[Installing](docs/user-guide.md#1-installing)**.
+
+## Quick start
+
+1. Open the app. The **Connections** window opens: choose **Add a RUCKUS One tenant…** and enter your tenant ID, client ID and secret (from *Administration > Account Management > Settings > Add Application Token* in RUCKUS One).
+2. Open a **sample** from the left list to see a finished workflow, press **Try it** to click through it, or choose **New blank workflow**.
+3. Fix anything in **Problems**, press **Preview**, then **Apply…** and type the name to confirm.
+4. Converting from Cloudpath? **Connections > Cloudpath**: address, email, password, **Read it now**.
+
+## Documentation
+
+**[User guide](docs/user-guide.md)**, with screenshots of every screen (also attached to each release as a PDF). Technical notes, including every behaviour confirmed against live RUCKUS One and Cloudpath systems, are below.
+
+---
+
+# Technical notes (for developers)
+
+Zero dependencies at runtime (Node 18+); Electron is a development dependency used only to package the desktop app. `npm test` runs the test suite (no network, no real systems: it uses a fake RUCKUS One and a fake Cloudpath). Start the studio in a browser with `node bin/ui.js` (http://127.0.0.1:8787).
+
+## Reading Cloudpath by hand (the older command-line route)
+The easy way is the studio's Connections > Cloudpath (it signs in and reads by itself). The manual way:
+
 1. Sign in to the Cloudpath admin UI in a browser.
 2. Paste the output of `node bin/crawl-script.js` (the crawler, `crawl/crawl.browser.js` with `crawl/core.js` inlined) into that tab's console. It issues GET requests only (workflow list, each
    step's edit form, each split option's branch) and, with `window.__NO_SEND = true`, keeps the result in
@@ -105,7 +138,7 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
     browser's own parser on 8 varied workflows (63 steps, 86 forms), and reading does not depend on which option Cloudpath had selected for
     the session (each branch's own form is read from the page where that branch is selected).
     Cloudpath lists are paged (15 rows, at most 100 per page); the crawler follows the pages, so it reads every workflow, and reads only
-    the DPSK pools and device configurations that those workflows use. A big instance has hundreds (one test instance has 350, about 2
+    the DPSK pools and device configurations that those workflows use. A big instance can have hundreds of workflows (about 2
     seconds each), so the dialog has "only names containing…" and "read at most…" options (also `window.__CRAWL_FILTER`, `__CRAWL_LIMIT`,
     `__CRAWL_PARALLEL` and `__CRAWL_STOP` if you paste the script yourself). Reading 3 workflows at once gives the same result as one at a
     time (tested). The Cloudpath list in the editor has a filter box, and the chart says "N of M read". A crawl never keeps secrets (shared
@@ -128,6 +161,10 @@ npm run dist:mac      # Apple Silicon: dist-app/R1-Workflow-Studio-<version>-mac
 npm run dist:win      # Windows 64-bit, built from a Mac: installer .exe and .zip (the .exe file itself keeps Electron's icon)
 npm run app           # run it from the source without packaging
 ```
+
+The user guide is `docs/user-guide.md` (screenshots in `docs/images/`). `node docs/make-screenshots.js` retakes every screenshot from the real app running on made-up data only
+(`test/demo-studio.js`: a pretend RUCKUS One and Cloudpath), so no real tenant or Cloudpath data can end up in a picture; `node docs/build-guide.js` builds the guide into one
+self-contained HTML file and a PDF in `dist-app/`. Undoing what the studio created is the **Undo** button in the app (`src/undo.js`); `node bin/undo.js` does the same from a terminal.
 
 For a Windows build with the proper icon and file details, run the "Build desktop apps" workflow on GitHub (Actions tab, Run workflow; a `v*` tag also
 drafts a release with the files). The apps are not code-signed, because that needs paid Apple and Windows certificates, so the first time:

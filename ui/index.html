@@ -300,12 +300,12 @@ function drawCpList() {
   const list = S.cloudpath.filter((w) => !q || w.name.toLowerCase().includes(q));
   box.replaceChildren(...list.map((w) => h("button", { class: S.source === "cp:" + w.name ? "on" : "", title: w.kind === "guestNetwork" ? "A voucher sign-in is a guest network in R1: this opens it as one" : "", onclick: () => { const m = clone(w), notes = m._notes; delete m._notes; delete m._issues; openWorkflow(m, "cp:" + w.name, notes); } },
     h("span", {}, (w.kind === "guestNetwork" ? "📶 " : "") + w.name), h("span", { class: "pill " + (w._issues ? "bad" : "ok") }, w._issues ? w._issues + " to fix" : "ready"))),
-    list.length ? null : h("div", { class: "hint" }, "Nothing matches."));
+    ...(list.length ? [] : [h("div", { class: "hint" }, "Nothing matches.")]));
 }
 function renderLeft() {
   const L = $("#left"); L.replaceChildren();
   L.append(h("h2", {}, "Start"));
-  L.append(h("div", { class: "list" }, h("button", { onclick: () => openWorkflow(clone(S.blank), "new") }, "＋ New blank workflow"), h("button", { onclick: () => openObject(clone(S.blankTpl), "new") }, "＋ New certificate template"), h("button", { onclick: () => openObject(clone(S.blankGuest), "new") }, "＋ New guest network"), h("button", { onclick: () => $("#fileIn").click(), title: "Open a workflow, certificate template or guest network that was saved to a file (Export file)" }, "📂 Open a file…"), h("button", { onclick: () => openConnections(), title: "Choose which RUCKUS One tenant and which Cloudpath instance the editor works with" }, "🔌 Connections…"), h("button", { onclick: () => window.open("/coverage", "_blank", "noopener"), title: "A chart of what is in Cloudpath, what it becomes in RUCKUS One, and what can't be converted" }, "📊 Cloudpath vs R1 chart")));
+  L.append(h("div", { class: "list" }, h("button", { onclick: () => openWorkflow(clone(S.blank), "new") }, "＋ New blank workflow"), h("button", { onclick: () => openObject(clone(S.blankTpl), "new") }, "＋ New certificate template"), h("button", { onclick: () => openObject(clone(S.blankGuest), "new") }, "＋ New guest network"), h("button", { onclick: () => $("#fileIn").click(), title: "Open a workflow, certificate template or guest network that was saved to a file (Export file)" }, "📂 Open a file…"), h("button", { onclick: () => openConnections(), title: "Choose which RUCKUS One tenant and which Cloudpath instance the editor works with" }, "🔌 Connections…"), h("button", { onclick: openUndo, title: "Remove from RUCKUS One what the studio created" }, "↩ Undo what I created…"), h("button", { onclick: () => window.open("/coverage", "_blank", "noopener"), title: "A chart of what is in Cloudpath, what it becomes in RUCKUS One, and what can't be converted" }, "📊 Cloudpath vs R1 chart")));
   L.append(h("h2", {}, "From Cloudpath"));
   { const i = S.cpInfo; let host = ""; try { host = new URL(i.source).hostname; } catch { host = i ? i.source : ""; }
     L.append(h("div", { class: "hint", style: "margin:0 0 6px" }, i ? host + " · read " + String(i.crawledAt).slice(0, 10) + " · " + cpCount(i) : "No Cloudpath instance loaded.", " ",
@@ -777,10 +777,10 @@ function renderPreview(P) {
   const Pv = S.preview, stale = Pv && S.previewKey !== key();
   P.append(h("div", { style: "display:flex;gap:8px;align-items:center;margin-bottom:8px" }, h("button", { class: "btn primary", onclick: doPreview, id: "runPreview" }, Pv ? "Preview again" : "Preview changes"), h("button", { class: "btn", onclick: () => setTab("try") }, "▶ Try it as a visitor"), h("span", { class: "hint" }, "Reads RUCKUS One; sends nothing.")));
   if (S.fixNote && S.fixNote.length) P.append(h("div", { class: "note ok" }, S.fixNote.map((m) => h("div", {}, "✔ " + m))));
-  if (S.applied) P.append(h("div", { class: "note " + (S.applied.ok ? "ok" : "bad") }, S.applied.text, S.applied.undo ? h("div", { style: "margin-top:6px" }, "To remove everything this tool created: ", h("code", {}, "node bin/undo.js --yes")) : null,
+  if (S.applied) P.append(h("div", { class: "note " + (S.applied.ok ? "ok" : "bad") }, S.applied.text, S.applied.undo ? h("div", { style: "margin-top:6px" }, h("button", { class: "btn small", onclick: openUndo }, "Undo: remove what the studio created…")) : null,
     S.applied.ok ? h("div", { style: "margin-top:8px" }, h("div", { class: "hint" }, "This name is now taken in R1, so applying again needs a different one. The copy in R1 is never changed by this editor."), h("button", { class: "btn small", style: "margin-top:4px", onclick: () => renameTo(nextFreeName()) }, "Keep editing as “" + nextFreeName() + "”"), " ", h("button", { class: "btn small", onclick: renamePrompt }, "Choose another name…")) : null));
   if (!Pv) { P.append(h("div", { class: "note" }, "Preview shows the finished workflow, every object that would be created, and each call, before anything is sent.")); return; }
-  if (stale) P.append(h("div", { class: "note bad" }, "You changed the workflow after this preview. Preview again before applying."));
+  if (stale && !(S.applied && S.applied.ok)) P.append(h("div", { class: "note bad" }, "You changed the workflow after this preview. Preview again before applying."));
   if (Pv.error) P.append(h("div", { class: "note bad" }, "The preview failed: " + Pv.error));
   const errs = Pv.issues.filter((i) => i.level === "error");
   if (errs.length) { P.append(h("h2", {}, "Fix these first"), ...fixControls(errs), issueItems(errs)); return; }
@@ -983,6 +983,24 @@ async function exportFile() {
     document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   } catch (e) { alert("Could not export: " + e.message); }
 }
+async function openUndo() {
+  let r; try { r = await api("/api/undo"); } catch (e) { alert(e.message); return; }
+  const can = r.items.filter((x) => x.canUndo);
+  const body = !r.items.length ? [h("p", {}, "The studio hasn't created anything in RUCKUS One yet, or it has all been removed.")] : [
+    h("p", {}, "These were created by the studio, newest first. Removing them deletes them from RUCKUS One (workflows first). Anything you or someone else made another way is never touched."),
+    h("ul", { style: "max-height:260px;overflow:auto;padding-left:18px;margin:8px 0" }, r.items.map((x) => h("li", {}, x.kind + ": ", h("b", {}, x.name), x.canUndo ? "" : h("span", { class: "hint" }, "  (made through the connection “" + x.tenant + "”: switch to it to remove this)")))),
+    r.live ? null : h("div", { class: "note bad" }, "Not connected to RUCKUS One: connect first.")];
+  const status = h("div", { id: "undoStatus" });
+  const go = h("button", { class: "btn primary", disabled: !r.live || !can.length, onclick: async () => {
+    go.disabled = true; go.textContent = "Removing… (RUCKUS One deletes in the background, this can take a minute)";
+    try {
+      const x = await api("/api/undo", { confirm: true });
+      status.replaceChildren(h("div", { class: "note " + (x.left.length ? "bad" : "ok") }, "Removed " + x.deleted.length + " item" + (x.deleted.length === 1 ? "" : "s") + "." + (x.left.length ? " Could not remove: " + x.left.map((l) => l.kind + " " + l.name + " (" + l.error + ")").join("; ") : "")));
+      S.applied = null; await refreshInv(); go.textContent = "Done"; 
+    } catch (e) { status.replaceChildren(h("div", { class: "note bad" }, e.message)); go.disabled = false; go.textContent = "Try again"; }
+  } }, can.length ? "Remove " + can.length + " item" + (can.length === 1 ? "" : "s") + " from RUCKUS One" : "Nothing to remove");
+  modal(h("div", { class: "dialog" }, h("h3", {}, "Undo"), ...body, status, h("div", { style: "display:flex;gap:8px;justify-content:flex-end;margin-top:12px" }, h("button", { class: "btn", onclick: closeModal }, "Close"), r.items.length ? go : null)));
+}
 async function refreshInv() { S.inv = (await api("/api/refresh", {})).inventory; renderAll(); validate(); }
 
 async function doPreview() {
@@ -1015,7 +1033,7 @@ async function doApply() {
     h("p", {}, S.obj ? "This creates the " + objDef().label + " “" + name + "”" + (objs.length ? ":" : ".") : "This creates the workflow “" + name + "” (unpublished) and its actions" + (objs.length ? ", plus:" : ".")),
     h("p", { class: "hint" }, "RUCKUS One connection: ", h("b", {}, S.connName || "connected")),
     objs.length ? h("ul", {}, objs.map((o) => h("li", {}, o))) : null,
-    h("p", { class: "hint" }, "If anything fails part way, what was created is removed again. Everything is listed in data/created.json and can be removed with node bin/undo.js --yes."),
+    h("p", { class: "hint" }, "If anything fails part way, what was created is removed again. Everything it creates is listed and can be removed again with Undo."),
     h("div", { class: "field" }, h("label", {}, "Type the workflow name to confirm"), input),
     h("div", { style: "display:flex;gap:8px;justify-content:flex-end" }, h("button", { class: "btn", onclick: closeModal }, "Cancel"), go)));
   input.focus();
@@ -1064,7 +1082,7 @@ async function startRead() {
   drawConnections(); if (C.cloudpath.job && ["starting", "running"].includes(C.cloudpath.job.state)) watchJob();
 }
 async function stopRead() { try { C = await api("/api/connections/cloudpath/crawl/stop", {}); } catch (e) { CV.msg = { bad: true, text: e.message }; } drawConnections(); }
-const jobText = (j) => j.state === "starting" ? "Signing in…" : j.total ? "Reading " + j.done + " of " + j.total + (j.listed && j.listed > j.total ? " (Cloudpath lists " + j.listed + ")" : "") + (j.name ? ": " + j.name : "") + (j.secondsLeft ? " · about " + (j.secondsLeft >= 90 ? Math.ceil(j.secondsLeft / 60) + " min" : j.secondsLeft + " s") + " left" : "") : j.message;
+const jobText = (j) => j.state === "starting" ? "Signing in…" : j.total ? j.done + " of " + j.total + (j.listed && j.listed > j.total ? " (Cloudpath lists " + j.listed + ")" : "") + (j.name ? ": " + j.name : "") + (j.secondsLeft ? " · about " + (j.secondsLeft >= 90 ? Math.ceil(j.secondsLeft / 60) + " min" : j.secondsLeft + " s") + " left" : "") : j.message;
 function updateJobUI(j) {
   const bar = $("#jobBar"), txt = $("#jobText"); if (!bar || !txt || !j) return;
   bar.style.width = (j.total ? Math.round((j.done / j.total) * 100) : 3) + "%"; txt.textContent = jobText(j);
@@ -1148,7 +1166,7 @@ function drawConnections() {
         h("div", {}),
         h("div", {}, h("label", { for: "cp_filter" }, "Only workflows whose name contains (optional)"), h("input", { id: "cp_filter", type: "text", placeholder: "e.g. guest, school  (several: separate with commas, or a /regex/)", value: CV.cpFilter || "", oninput: (e) => { CV.cpFilter = e.target.value; } })),
         h("div", {}, h("label", { for: "cp_limit" }, "Read at most (optional)"), h("input", { id: "cp_limit", type: "number", min: 1, placeholder: "all of them", value: CV.cpLimit || "", oninput: (e) => { CV.cpLimit = e.target.value; } })),
-        h("div", { class: "full hint" }, "A Cloudpath instance can have hundreds of workflows (one has 350); reading each takes about 2 seconds, so a full read can take 10 to 25 minutes. Filter or limit them if you only need some. Use a Cloudpath account that can read workflows; if it uses single sign-on or a verification code, use the browser method below.")),
+        h("div", { class: "full hint" }, "A Cloudpath instance can have hundreds of workflows; reading each takes about 2 seconds, so a full read of a big one can take 10 to 25 minutes. Filter or limit them if you only need some. Use a Cloudpath account that can read workflows; if it uses single sign-on or a verification code, use the browser method below.")),
       h("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center" },
         h("button", { class: "btn primary small", onclick: startRead }, "Read it now"),
         h("button", { class: "btn small", onclick: () => $("#crawlIn").click() }, "Load a crawl file…"),
@@ -1178,7 +1196,7 @@ function drawConnections() {
       fld("tenantId", "Tenant ID", { placeholder: ed ? "keep " + ed.tenantEnd : "" }), fld("clientId", "Client ID", { placeholder: ed ? "keep " + ed.clientEnd : "" }),
       h("div", {}, h("label", { for: "cf_clientSecret" }, "Client secret"), h("input", { id: "cf_clientSecret", type: "password", autocomplete: "new-password", placeholder: ed ? "keep the saved secret" : "" })),
       fld("delegatedTenantId", "MSP delegated tenant ID (optional)", { placeholder: ed && ed.delegatedEnd ? "keep " + ed.delegatedEnd : "" })),
-    h("p", { class: "hint" }, "Create these in RUCKUS One under Administration → Account → API Tokens (an application token). The secret is stored on this computer only, in data/connections.json, and is never shown here again."),
+    h("p", { class: "hint" }, "In RUCKUS One go to Administration > Account Management > Settings, and at the bottom choose Add Application Token: that gives the client ID and secret. The tenant ID is shown with the token details and in the address after you sign in. Region: North America is ruckus.cloud, Europe eu.ruckus.cloud, Asia asia.ruckus.cloud. The secret is kept on this computer only (encrypted by the system in the desktop app) and is never shown again."),
     CV.testNote ? h("div", { class: "note " + (CV.testNote.ok ? "ok" : CV.testNote.bad ? "bad" : "") }, CV.testNote.text) : null,
     h("div", { style: "display:flex;gap:8px;flex-wrap:wrap" }, h("button", { class: "btn small", onclick: testForm }, "Test sign-in"), h("button", { class: "btn small", onclick: () => saveForm(false) }, "Save"), h("button", { class: "btn primary small", onclick: () => saveForm(true) }, "Save and use"), h("button", { class: "btn small", onclick: () => { CV.form = null; CV.testNote = null; drawConnections(); } }, "Cancel"))) : null;
   const rone = [

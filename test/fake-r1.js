@@ -1,7 +1,7 @@
 // A fake RUCKUS One for tests: remembers what is created, answers reads, can be told to fail a call.
 function fakeR1({ failOn, existing = {} } = {}) {
   const calls = []; let n = 0;
-  const store = { options: {}, workflows: [], dpsk: existing.dpsk || [], groups: [], mac: existing.mac || [], nets: existing.nets || [] };
+  const store = { options: {}, workflows: existing.workflows || [], dpsk: existing.dpsk || [], groups: existing.groups || [], mac: existing.mac || [], nets: existing.nets || [] };
   const client = {
     async call(method, p, body) {
       calls.push({ method, path: p, body });
