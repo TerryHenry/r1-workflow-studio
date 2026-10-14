@@ -82,6 +82,18 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
   Cloudpath areas the crawler doesn't read (authentication servers, notification templates, data, integrations) are listed as "not read"
   rather than guessed. The catalog is in `src/coverage.js`: update it when the tool learns to convert something new.
 - **Names already in R1**: if the name is taken (for instance right after you deploy it), the Problems tab offers "Rename to “Name (2)”" (the next free one) or a name of your choice, and after a successful apply the Preview tab offers "Keep editing as …". The name box at the top of the page always renames what is open. The copy already in R1 is never changed by the editor; rename or delete that one in RUCKUS One.
+- **Connections** (the green pill in the header, or "Connections…" in the left list): choose which RUCKUS One tenant and which Cloudpath
+  instance the editor works with, without restarting it.
+  - *RUCKUS One*: keep several tenants (name, region, tenant id, client id, client secret, optional MSP delegated tenant id), test the
+    sign-in, and switch between them, the default (environment or Visitor Desk config, as before) or offline. A new connection is signed in
+    and read once before it replaces the old one, a failed switch changes nothing, and a switch clears every preview so a preview made on
+    one tenant can never be applied to another. The Apply dialog and the header name the connection in use. Secrets are stored in
+    `data/connections.json` (mode 600) and never sent to the page: it only sees the last four characters of the ids.
+  - *Cloudpath*: the editor never signs in to Cloudpath. A crawl is read in your own browser, as whichever Cloudpath admin user you are
+    signed in as. "Read a Cloudpath instance…" arms a one-time code (15 minutes) and gives you the crawler script to paste into that
+    tab's console; it reports back to the editor by itself (`POST /api/crawl/receive`, accepted only with the code, once). If Cloudpath's
+    security policy blocks that, it downloads `crawl.json`: "Load a crawl file…". Every crawl is kept in `data/crawls/` (named by instance
+    and date), so you can switch back; the active one is also written to `data/crawl.json` for the command-line tools.
 
 ## Step mapping
 | Cloudpath | R1 action | Support |

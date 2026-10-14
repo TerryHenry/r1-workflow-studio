@@ -19,11 +19,17 @@ const { appendCreated } = require("./ledger");
 const { samples } = require("./samples");
 const { exportFile, importFile } = require("./exchange");
 const coverageMod = require("./coverage");
+const conns = require("./connections");
+const crawls = require("./crawls");
 
 const NAME = /^[\w .()-]{1,80}$/;
 
-function createUiServer({ client = null, crawl = null, mapping = {}, root = path.join(__dirname, ".."), log = () => {}, pollMs } = {}) {
+function createUiServer({ client: startClient = null, crawl: startCrawl = null, mapping: startMapping = {}, root = path.join(__dirname, ".."), log = () => {}, pollMs, makeClient = require("./r1").client, connection = "" } = {}) {
   const token = crypto.randomBytes(24).toString("hex");
+  // What the editor is connected to can change while it runs (Connections dialog): the RUCKUS One tenant and the Cloudpath crawl.
+  let client = startClient, crawl = startCrawl, mapping = startMapping;
+  let connName = connection || (startClient ? "default" : "offline");    // "offline", "default", or a saved connection's name
+  let applying = 0, arm = null, crawlStamp = 0;
   const previews = new Map();                                 // hash -> time
   let inv = null;
   const draftsDir = path.join(root, "data", "drafts");
@@ -45,6 +51,10 @@ function createUiServer({ client = null, crawl = null, mapping = {}, root = path
 
   // Runs the builder against the model. apply=false: reads from R1, writes nothing.
   async function run(workflow, options, apply) {
+    if (apply) applying++;
+    try { return await run2(workflow, options, apply); } finally { if (apply) applying--; }
+  }
+  async function run2(workflow, options, apply) {
     const i = await getInv(apply);
     const o = opts(options);
     const issues = validate(workflow, i, o);
@@ -99,11 +109,59 @@ function createUiServer({ client = null, crawl = null, mapping = {}, root = path
   }
   const needClient = () => { if (!client) throw httpError(409, "Not connected to RUCKUS One (started with --offline)."); };
 
+  function setCrawl(j) { crawls.validateCrawl(j); if (crawl) crawls.saveCrawl(root, crawl); crawls.activate(root, j); crawl = j; crawlStamp++; }   // what was loaded is kept before it is replaced
+  function connectionsState() {
+    const s = conns.summary(root);
+    return {
+      r1: { name: connName, live: !!client, hasDefault: s.hasDefault, profiles: s.profiles, regions: s.regions },
+      cloudpath: { active: crawls.activeInfo(root, crawl), saved: crawls.listSaved(root), armed: !!(arm && arm.until > Date.now()), stamp: crawlStamp },
+    };
+  }
+
   const routes = {
     "GET /api/state": async () => ({
       schema: ACTIONS, templateFields: TEMPLATE_FIELDS, blankTemplate: blankTemplate(), guestFields: GUEST_FIELDS, blankGuest: blankGuestNetwork(), lookColors: LOOK_COLORS, defaultLook: DEFAULT_LOOK, logicFields: LOGIC_FIELDS, logicOps: LOGIC_OPS, inventory: await getInv(), live: !!client, hasCloudpath: !!crawl,
-      cloudpath: await cloudpathModels(), drafts: listDrafts(), blank: blankWorkflow(), samples: samples(),
+      cloudpath: await cloudpathModels(), connection: { live: !!client, name: connName }, cloudpathInfo: crawls.activeInfo(root, crawl), drafts: listDrafts(), blank: blankWorkflow(), samples: samples(),
     }),
+    "GET /api/connections": async () => connectionsState(),
+    "PUT /api/connections/r1": async (b) => { conns.upsert(root, conns.cleanProfile(root, b.profile)); return connectionsState(); },
+    "POST /api/connections/r1/delete": async (b) => {
+      const name = String(b.name || "");
+      if (name === connName) throw httpError(409, "That's the connection in use. Switch to another one first.");
+      conns.remove(root, name); return connectionsState();
+    },
+    "POST /api/connections/r1/test": async (b) => {
+      const creds = b.profile ? (({ name, ...p }) => p)(conns.cleanProfile(root, { ...b.profile, name: String(b.profile.name || "test connection") })) : conns.credsFor(root, String(b.name || ""));
+      try { return await conns.test(makeClient, creds); } catch (e) { throw httpError(400, "Could not sign in: " + e.message); }
+    },
+    "POST /api/connections/r1/use": async (b) => {
+      const name = String(b.name || "");
+      if (applying) throw httpError(409, "An apply is running. Wait for it to finish.");
+      if (name === "offline") { client = null; connName = "offline"; conns.setActive(root, "offline"); }
+      else {
+        let c;
+        try { const creds = conns.credsFor(root, name); c = makeClient(creds); await conns.test(() => c, creds); }
+        catch (e) { throw httpError(e.status || 400, "Could not connect: " + e.message); }
+        client = c; connName = name;
+        conns.setActive(root, name);
+      }
+      inv = null; previews.clear(); mapping = {};                     // nothing previewed against another tenant can be applied here
+      log("connected to: " + connName);
+      return connectionsState();
+    },
+    "POST /api/connections/cloudpath/use": async (b) => { setCrawl(crawls.loadSaved(root, String(b.file || ""))); return connectionsState(); },
+    "POST /api/connections/cloudpath/load": async (b) => {
+      let j; try { j = JSON.parse(String(b.text || "")); } catch { throw httpError(400, "That isn't a crawl file: it isn't valid JSON."); }
+      setCrawl(j); return connectionsState();
+    },
+    "POST /api/connections/cloudpath/delete": async (b) => { crawls.deleteSaved(root, String(b.file || "")); return connectionsState(); },
+    "POST /api/connections/cloudpath/arm": async (b, req) => {
+      const host = String(req.headers.host || "127.0.0.1:8787");
+      arm = { code: crypto.randomBytes(16).toString("hex"), until: Date.now() + 15 * 60e3 };
+      const script = fs.readFileSync(path.join(root, "crawl", "crawl.browser.js"), "utf8");
+      return { until: arm.until, script: `window.__CRAWL_RECEIVER=${JSON.stringify("http://" + host + "/api/crawl/receive")};window.__CRAWL_CODE=${JSON.stringify(arm.code)};\n` + script };
+    },
+    "POST /api/connections/cloudpath/disarm": async () => { arm = null; return connectionsState(); },
     "POST /api/file/export": async (b) => exportFile(b.model),
     "POST /api/file/import": async (b) => importFile(b.text, String(b.fileName || "").slice(0, 200)),
     "POST /api/refresh": async () => ({ inventory: await getInv(true) }),
@@ -217,6 +275,20 @@ function createUiServer({ client = null, crawl = null, mapping = {}, root = path
           "content-security-policy": "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" });
         return res.end(html);
       }
+      if (url.pathname === "/api/crawl/receive") {                         // the crawler script posts here from the Cloudpath tab
+        const cors = { "access-control-allow-origin": "*", "access-control-allow-methods": "POST, OPTIONS", "access-control-allow-headers": "content-type, x-crawl-code", "access-control-allow-private-network": "true", "cache-control": "no-store" };
+        if (req.method === "OPTIONS") { res.writeHead(204, cors); return res.end(); }
+        const fail = (status, message) => { res.writeHead(status, { ...cors, "content-type": "application/json" }); res.end(JSON.stringify({ error: message })); };
+        if (req.method !== "POST") return fail(405, "POST only");
+        const given = String(req.headers["x-crawl-code"] || "");
+        const ok = arm && arm.until > Date.now() && given.length === arm.code.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(arm.code));
+        if (!ok) return fail(403, "Not waiting for a crawl. In the editor choose Connections, then Read a Cloudpath instance.");
+        const chunks = []; let size = 0;
+        for await (const c of req) { size += c.length; if (size > 12e6) return fail(413, "Too large"); chunks.push(c); }
+        let j; try { j = JSON.parse(Buffer.concat(chunks).toString("utf8")); crawls.validateCrawl(j); } catch (e) { return fail(400, e.message); }
+        arm = null; setCrawl(j);
+        res.writeHead(200, { ...cors, "content-type": "application/json" }); return res.end(JSON.stringify({ ok: true, workflows: j.workflows.length }));
+      }
       if (req.method === "GET" && (url.pathname === "/coverage" || url.pathname === "/coverage.csv")) {
         const data = coverageMod.coverage(crawl, mapping);
         if (url.pathname === "/coverage.csv") { res.writeHead(200, { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="cloudpath-vs-r1.csv"', "cache-control": "no-store", "x-content-type-options": "nosniff" }); return res.end(coverageMod.csv(data)); }
@@ -233,7 +305,7 @@ function createUiServer({ client = null, crawl = null, mapping = {}, root = path
         for await (const c of req) { size += c.length; if (size > 12e6) throw httpError(413, "Too large"); chunks.push(c); }
         try { body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"); } catch { throw httpError(400, "Bad JSON"); }
       }
-      send(200, await handler(body));
+      send(200, await handler(body, req));
     } catch (e) {
       log("ui error: " + e.message);
       send(e.status || 500, { error: e.message });

@@ -15,9 +15,14 @@ const read = (f) => (fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) :
 const crawl = read(val("crawl") || path.join(root, "data", "crawl.json"));
 const mapping = read(val("mapping") || path.join(root, "data", "mapping.json")) || {};
 for (const g of Object.keys(mapping)) for (const k of Object.keys(mapping[g])) if (!mapping[g][k]) delete mapping[g][k];
-const client = args.includes("--offline") ? null : require("../src/r1").client();
+// The connection to start with: --offline, else the one last used in the Connections dialog, else the default (environment or Visitor Desk config).
+let client = null, connection = "offline";
+if (!args.includes("--offline")) {
+  try { const c = require("../src/connections").initial(root); client = c.client; connection = c.label; }
+  catch (e) { console.error("No RUCKUS One connection: " + e.message + "\nStarting offline: use Connections in the editor to add one."); }
+}
 
-const server = createUiServer({ client, crawl, mapping, root, log: (l) => console.error(l) });
+const server = createUiServer({ client, connection, crawl, mapping, root, log: (l) => console.error(l) });
 server.listen(port, "127.0.0.1", () => {
   console.log(`Workflow editor: http://127.0.0.1:${port}`);
   console.log(client ? "Connected to RUCKUS One (reads now; writes only after you preview and apply)." : "Offline: no RUCKUS One connection.");

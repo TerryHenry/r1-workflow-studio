@@ -147,7 +147,7 @@
   const body = JSON.stringify(result);
   if (window.__NO_SEND) return "crawled " + body.length + " bytes (kept in window.__crawl)";
   try {
-    const r = await fetch(RECEIVER, { method: "POST", headers: { "content-type": "application/json" }, body });
+    const r = await fetch(RECEIVER, { method: "POST", headers: { "content-type": "application/json", ...(window.__CRAWL_CODE ? { "x-crawl-code": window.__CRAWL_CODE } : {}) }, body });
     return "sent " + body.length + " bytes to receiver: " + r.status;
   } catch (e) {
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([body], { type: "application/json" })); a.download = "crawl.json"; a.click();
