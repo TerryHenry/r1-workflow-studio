@@ -185,7 +185,7 @@ test("secrets are never kept in a crawl: removed on the way in, from saved files
   assert.equal(require("../src/crawls").redactSaved(root), 2);
   assert.ok(!fs.readFileSync(path.join(root, "data", "crawl.json"), "utf8").includes("example-secret"));
   assert.ok(!fs.readFileSync(path.join(root, "data", "crawls", "a.json"), "utf8").includes("example-secret"));
-  const script = fs.readFileSync(path.join(__dirname, "..", "crawl", "crawl.browser.js"), "utf8");
+  const script = require("../src/crawlscript").buildBrowserScript(path.join(__dirname, ".."));
   assert.match(script, /fields\[n\] = redact\(n, e\.value\)/); assert.match(script, /tooltip: tip\(/);
 });
 
@@ -196,4 +196,24 @@ test("a big Cloudpath instance: the chart says how many were read of how many ex
   const page = html(d, {});
   assert.match(page, /Cloudpath lists 350; the rest were not read/); assert.match(page, /<details><summary>Show the other 15 workflows/);
   assert.ok(!/<details>/.test(html(coverage(crawl, {}), {})), "a small instance shows everything");
+});
+
+test("a credentials step says which user source it uses: Cloudpath's internal database is testing-only, a directory maps to LDAP", () => {
+  const { convertAll } = require("../src/convert");
+  const { fromPlan, validate } = require("../src/model");
+  const mk = (type, label, tip) => ({ kind: "credprompt", number: "1", label, fields: {}, links: [{ text: "x", href: "x", tooltip: "Credential Prompt\nLogin" }, { text: "y", href: "y", tooltip: tip }] });
+  const wf = { pk: 3, name: "Creds", steps: [mk("db", "Prompt the user for credentials from Lab-DB", "Onboard Database \nUsers: 12"), mk("ad", "Prompt the user for credentials from Ruckus Demo AD", "Active Directory\nDefault Domain:  d.example.com\nHost:  ldap://10.1.1.1\nDN:  dc=d")] };
+  const plan = convertAll({ workflows: [wf], objects: {} }, {}).workflows[0];
+  const [db, ad] = plan.steps;
+  assert.equal(db.ref.userSource, "onboard"); assert.equal(ad.ref.userSource, "directory");
+  assert.match(db.notes[0], /Lab-DB/); assert.match(db.notes[0], /testing only/); assert.match(db.notes[0], /not meant to be used in production/);
+  assert.match(ad.notes[0], /Active Directory/); assert.match(ad.notes[0], /ldap:\/\/10\.1\.1\.1/); assert.ok(!/testing only/.test(ad.notes[0]));
+  const model = fromPlan(plan, inv, {});
+  const probs = validate({ ...model, steps: [model.steps[0]] }, inv).map((i) => i.message).join(" ");
+  assert.match(probs, /internal \(Onboard\) user database/); assert.match(probs, /testing only/); assert.match(probs, /should not be used in production/);
+  assert.match(validate({ ...model, steps: [model.steps[1]] }, inv).map((i) => i.message).join(" "), /checks users against a directory/);
+  // survives export and import
+  assert.equal(importFile(exportFile(model).text).model.steps[0].source.userSource, "onboard");
+  const cov = coverage({ workflows: [wf], objects: {} }, {});
+  assert.equal(cov.rows.find((r) => r.id === "credprompt-onboard").count, 1); assert.equal(cov.rows.find((r) => r.id === "credprompt").count, 1);
 });

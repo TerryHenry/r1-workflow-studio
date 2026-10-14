@@ -21,6 +21,7 @@ const { exportFile, importFile } = require("./exchange");
 const coverageMod = require("./coverage");
 const conns = require("./connections");
 const crawls = require("./crawls");
+const { buildBrowserScript } = require("./crawlscript");
 
 const NAME = /^[\w .()-]{1,80}$/;
 
@@ -165,10 +166,9 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
     "POST /api/connections/cloudpath/arm": async (b, req) => {
       const host = String(req.headers.host || "127.0.0.1:8787");
       arm = { code: crypto.randomBytes(16).toString("hex"), until: Date.now() + 15 * 60e3 };
-      const script = fs.readFileSync(path.join(root, "crawl", "crawl.browser.js"), "utf8");
       const filter = String(b.filter || "").trim().slice(0, 300), limit = Math.max(0, Math.min(5000, parseInt(b.limit, 10) || 0));
       const opts = (filter ? `window.__CRAWL_FILTER=${JSON.stringify(filter)};` : "") + (limit ? `window.__CRAWL_LIMIT=${limit};` : "");
-      return { until: arm.until, script: `window.__CRAWL_RECEIVER=${JSON.stringify("http://" + host + "/api/crawl/receive")};window.__CRAWL_CODE=${JSON.stringify(arm.code)};${opts}\n` + script };
+      return { until: arm.until, script: buildBrowserScript(root, `window.__CRAWL_RECEIVER=${JSON.stringify("http://" + host + "/api/crawl/receive")};window.__CRAWL_CODE=${JSON.stringify(arm.code)};${opts}\n`) };
     },
     "POST /api/connections/cloudpath/disarm": async () => { arm = null; return connectionsState(); },
     "POST /api/file/export": async (b) => exportFile(b.model),

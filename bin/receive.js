@@ -19,7 +19,7 @@ http.createServer((req, res) => {
   if (req.method === "OPTIONS") { res.writeHead(204, cors); return res.end(); }
   if (req.method === "GET" && req.url === "/crawl.js") {
     res.writeHead(200, { ...cors, "content-type": "text/javascript" });
-    return res.end(fs.readFileSync(path.join(root, "crawl", "crawl.browser.js")));
+    return res.end(require("../src/crawlscript").buildBrowserScript(root));
   }
   if (req.method === "POST" && req.url === "/crawl") {
     const chunks = [];

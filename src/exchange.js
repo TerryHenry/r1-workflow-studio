@@ -33,6 +33,7 @@ function cleanSource(s) {
   const out = {};
   if (s.cloudpathKind) out.cloudpathKind = str(s.cloudpathKind, 40);
   if (s.cloudpathName) out.cloudpathName = str(s.cloudpathName, 200);
+  if (s.userSource === "onboard" || s.userSource === "directory") out.userSource = s.userSource;
   if (Array.isArray(s.notes)) out.notes = s.notes.slice(0, 20).map((x) => str(x, 1500));
   if (s.create && typeof s.create === "object") { const c = JSON.stringify(s.create); if (c.length <= 4000) out.create = JSON.parse(c); }
   return Object.keys(out).length ? out : undefined;

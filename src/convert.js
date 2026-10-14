@@ -158,6 +158,22 @@ function output(step, ctx) {
 
 const manual = (why) => () => ({ support: "manual", notes: [why], action: null });
 
+// "Prompt the user for credentials": checked against one of Cloudpath's user sources. Which one is in the authentication server link's tooltip
+// ("Onboard Database", "Active Directory", ...). Cloudpath's own Onboard database is meant for testing only; a directory is what R1 can use.
+function credprompt(step) {
+  const tips = (step.links || []).map((l) => String(l.tooltip || ""));
+  const type = tips.map((x) => x.split("\n")[0].trim()).find((x) => x && !/^credential prompt$/i.test(x)) || "";
+  const host = (tips.join("\n").match(/Host:\s*(\S+)/) || [])[1] || "";
+  const server = ((step.label || "").match(/credentials from (.+?)\.*$/i) || [])[1] || "";
+  const internal = /onboard database/i.test(type);
+  const who = server ? "“" + trunc(server, 60) + "”" : "the authentication server";
+  const notes = internal
+    ? ["This step checks usernames and passwords against Cloudpath's internal user database (the “Onboard Database”, here " + who + "). Cloudpath designed that database for testing only: it is not meant to be used in production, and R1 has nothing like it. " +
+       "R1's sign-in steps use an external directory (LDAP) or single sign-on. Move these users into a real directory first, then add an LDAP sign-in step with that directory's profile id."]
+    : ["This step checks usernames and passwords against " + (type ? type : "a directory") + " (" + who + (host ? ", " + host : "") + "). R1 can do that with an LDAP sign-in step (or SSO), using a directory server profile you set up in R1 first: add the step and enter that profile's id."];
+  return { support: "manual", notes, action: null, ref: { userSource: internal ? "onboard" : "directory", server, serverType: type, host } };
+}
+
 // Cloudpath fills ${VARIABLE} / $VARIABLE in message text (e.g. $DPSK); R1 messages are fixed text.
 const VAR = /\$\{[^}]+\}|\$[A-Z][A-Z0-9_]+/g;
 
@@ -205,7 +221,7 @@ const RULES = {
   oauth: manual("Cloudpath signs the visitor in with a social account (Google, Facebook, LinkedIn or a custom OAuth provider). R1's identity provider step uses a SAML or OIDC provider set up in R1, which is not the same thing: there is no direct equivalent, and the provider keys were not copied."),
   ss: manual("Cloudpath asks the visitor for a shared passphrase. R1 has no step that checks one. A shared passphrase on a Wi-Fi network is a PSK network (or a DPSK pool for personal ones). The passphrase itself was not copied."),
   oob: manual("The editor converts this automatically to an R1 guest network (a workflow that is only a voucher sign-in opens as one; a voucher branch inside a choice moves out to one). Cloudpath sends a voucher code by email or SMS and the visitor enters it: in R1 terms that is a guest pass. The R1 workflow action list has no guest-pass action (DATA_PROMPT only collects email/phone), so this part moves to an R1 guest network of type GuestPass (passes made by sponsors, the guest API, or bulk import) rather than a workflow step. The AUP becomes the network's terms text, the SMS/email choice becomes the pass delivery methods. See README 'Guest networks'."),
-  credprompt: manual("Cloudpath asks for a username and password checked against its own user database or a directory. R1 offers LDAP_AUTH_PROVIDER / IDP_AUTH_PROVIDER (external directory, SSO); an internal Cloudpath user database has no equivalent."),
+  credprompt,
   concurrent: manual("Cloudpath reminds the user to remove old certificates. R1 has no such step; use DISPLAY_MESSAGE to tell them, or drop it."),
 };
 

@@ -331,7 +331,7 @@ function fromPlan(planWf, inv, objects) {
         n = { ...n, options: kept };
       }
       const cp = n.cloudpath || {};
-      const src = { cloudpathKind: cp.kind, cloudpathName: cp.name || cp.label, notes: n.notes || [] };
+      const src = { cloudpathKind: cp.kind, cloudpathName: cp.name || cp.label, notes: n.notes || [], ...(n.ref && n.ref.userSource ? { userSource: n.ref.userSource } : {}) };
       if (!n.r1 && n.end) continue;                               // "(end)" results: the path ends by itself
       const t = n.r1 && n.r1.actionType;
       let node;
@@ -422,7 +422,15 @@ function validate(wf, inv = {}, opts = {}) {
   const newPools = new Set(), newTpls = new Set(), newLists = new Set();
   const walk = (nodes) => {
     for (const n of nodes) {
-      if (n.type === PLACEHOLDER) { add("error", `"${n.name}" has no R1 equivalent: replace it with another step, or delete it.`, n.id); continue; }
+      if (n.type === PLACEHOLDER) {
+        const us = n.source && n.source.userSource;
+        add("error", us === "onboard"
+          ? `"${n.name}" checks users against Cloudpath's internal (Onboard) user database, which Cloudpath designed for testing only and which should not be used in production. R1 has nothing like it: use an LDAP sign-in step with a real directory, or delete this step.`
+          : us === "directory"
+            ? `"${n.name}" checks users against a directory. Replace it with an LDAP sign-in step (you need a directory server profile in R1), or delete it.`
+            : `"${n.name}" has no R1 equivalent: replace it with another step, or delete it.`, n.id);
+        continue;
+      }
       const spec = ACTIONS[n.type];
       if (!spec) { add("error", `Unknown step type ${n.type}.`, n.id); continue; }
       if (!String(n.name || "").trim()) add("error", "A step has no name.", n.id);

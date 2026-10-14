@@ -36,8 +36,10 @@ const CATALOG = [
     note: "R1's identity provider step uses SAML or OIDC set up in R1: not the same thing. Provider keys are never copied." },
   { id: "ss", group: "Workflow steps", cloudpath: "Prompt for a shared passphrase", r1: "(none)", status: "none", evidence: "docs",
     note: "No R1 step checks a shared passphrase. A shared passphrase is a PSK network; personal ones are DPSK. The passphrase isn't copied." },
-  { id: "credprompt", group: "Workflow steps", cloudpath: "Username and password prompt", r1: "LDAP or SSO sign-in step", status: "partial", evidence: "docs",
-    note: "Works for an external directory (LDAP) or SSO. A Cloudpath internal user database has no equivalent. The converter leaves a placeholder; you add the sign-in step and the directory profile id." },
+  { id: "credprompt-onboard", group: "Workflow steps", cloudpath: "Username and password prompt, checked against Cloudpath's internal (Onboard) user database", r1: "(none)", status: "none", evidence: "docs",
+    note: "Cloudpath designed its internal database for testing only; it is not meant for production, and R1 has nothing like it. Move these users into a real directory (LDAP / Active Directory) and use an LDAP sign-in step." },
+  { id: "credprompt", group: "Workflow steps", cloudpath: "Username and password prompt, checked against a directory (Active Directory, LDAP)", r1: "LDAP sign-in step", status: "partial", evidence: "docs",
+    note: "R1 can check an external directory with an LDAP step, using a directory server profile you set up in R1. The converter leaves a placeholder that names the directory; you add the step and the profile id." },
   { id: "concurrent", group: "Workflow steps", cloudpath: "Remind the user to remove old certificates", r1: "(none)", status: "none", evidence: "docs",
     note: "No such step in R1. Use a message step to tell visitors, or drop it." },
   // -- Objects read from the crawl --
@@ -79,6 +81,7 @@ function rowId(n) {
   const k = n.cloudpath && n.cloudpath.kind, t = n.r1 && n.r1.actionType;
   if (k === "selection") return t === "FUNCTIONAL_SPLIT" ? "selection-rules" : "selection-open";
   if (k === "output") return !n.r1 ? "output-end" : t === "CERT_TEMPLATE" ? "output-cert" : "output-network";
+  if (k === "credprompt") return n.ref && n.ref.userSource === "onboard" ? "credprompt-onboard" : "credprompt";
   return { aup: "aup", dpsk: "dpsk", registration: "mac", oob: "oob", credprompt: "credprompt", concurrent: "concurrent", message: "message", dataPrompt: "dataprompt", redirect: "redirect", oauth: "oauth", ss: "ss" }[k] || ("unknown:" + k);
 }
 

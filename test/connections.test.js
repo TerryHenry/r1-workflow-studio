@@ -17,7 +17,7 @@ async function start(opts = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "c2r-conn-"));
   fs.mkdirSync(path.join(root, "ui"), { recursive: true }); fs.mkdirSync(path.join(root, "crawl"), { recursive: true });
   fs.copyFileSync(path.join(__dirname, "..", "ui", "index.html"), path.join(root, "ui", "index.html"));
-  fs.copyFileSync(path.join(__dirname, "..", "crawl", "crawl.browser.js"), path.join(root, "crawl", "crawl.browser.js"));
+  for (const f of ["crawl.browser.js", "core.js"]) fs.copyFileSync(path.join(__dirname, "..", "crawl", f), path.join(root, "crawl", f));
   const first = fakeR1({ existing: { venues: [{ id: "v1", name: "First" }] } }), made = [];
   const makeClient = (creds) => { made.push(creds); if (creds.clientSecret === "WRONG") return { call: async () => { throw new Error("RUCKUS One login failed (401)"); } }; return fakeR1({ existing: { venues: [{ id: "v2", name: "Second" }] } }).client; };
   const server = createUiServer({ client: first.client, crawl: opts.noCrawl ? null : crawl, root, pollMs: 0, makeClient });
