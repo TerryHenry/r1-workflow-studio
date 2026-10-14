@@ -10,14 +10,28 @@ const DEFAULT = "default";
 const bad = (message) => { const e = new Error(message); e.status = 400; return e; };
 const file = (root) => path.join(root, "data", "connections.json");
 
+// Secrets at rest: the desktop app gives this module the operating system's own store (macOS Keychain, Windows DPAPI via Electron's safeStorage), so
+// client secrets are written encrypted. Without one (the command line) they are written as before, in a file only the owner can read (mode 600).
+let vault = null;                     // { seal(text) -> string, open(string) -> text }
+function setVault(v) { vault = v || null; }
+
+function openSecret(p) {
+  const s = p.clientSecret;
+  if (s && typeof s === "object" && typeof s.sealed === "string") {
+    try { return { ...p, clientSecret: vault ? vault.open(s.sealed) : "", secretUnreadable: !vault }; } catch { return { ...p, clientSecret: "", secretUnreadable: true }; }
+  }
+  return p;
+}
+const sealSecret = (p) => { const { secretUnreadable, ...rest } = p; return vault && rest.clientSecret ? { ...rest, clientSecret: { sealed: vault.seal(rest.clientSecret) } } : rest; };
+
 function load(root) {
-  try { const j = JSON.parse(fs.readFileSync(file(root), "utf8")); return { active: j.active || null, profiles: Array.isArray(j.profiles) ? j.profiles : [] }; }
+  try { const j = JSON.parse(fs.readFileSync(file(root), "utf8")); return { active: j.active || null, profiles: (Array.isArray(j.profiles) ? j.profiles : []).map(openSecret) }; }
   catch { return { active: null, profiles: [] }; }
 }
-function save(root, store) { fs.mkdirSync(path.dirname(file(root)), { recursive: true }); fs.writeFileSync(file(root), JSON.stringify(store, null, 2), { mode: 0o600 }); }
+function save(root, store) { fs.mkdirSync(path.dirname(file(root)), { recursive: true }); fs.writeFileSync(file(root), JSON.stringify({ ...store, profiles: store.profiles.map(sealSecret) }, null, 2), { mode: 0o600 }); }
 
 const end = (s) => (s ? "…" + String(s).slice(-4) : "");
-const publicView = (p) => ({ name: p.name, region: p.region, tenantEnd: end(p.tenantId), clientEnd: end(p.clientId), delegatedEnd: end(p.delegatedTenantId), hasSecret: !!p.clientSecret });
+const publicView = (p) => ({ name: p.name, region: p.region, tenantEnd: end(p.tenantId), clientEnd: end(p.clientId), delegatedEnd: end(p.delegatedTenantId), hasSecret: !!p.clientSecret, secretUnreadable: !!p.secretUnreadable });
 
 // What the page may know: names and the ends of ids. Never a secret.
 function summary(root) {
@@ -62,6 +76,7 @@ function credsFor(root, name) {
   if (name === DEFAULT) return r1.credentials();
   const p = load(root).profiles.find((x) => x.name === name);
   if (!p) { const e = new Error("There's no saved connection called “" + name + "”."); e.status = 404; throw e; }
+  if (!p.clientSecret) { const e = new Error("The saved secret for “" + name + "” can't be read on this computer (it was saved by another user or computer). Edit the connection and enter the client secret again."); e.status = 409; throw e; }
   return { region: p.region, tenantId: p.tenantId, clientId: p.clientId, clientSecret: p.clientSecret, delegatedTenantId: p.delegatedTenantId || "" };
 }
 
@@ -81,4 +96,4 @@ function initial(root, makeClient = r1.client) {
   return { client: makeClient(r1.credentials()), label: "default" };
 }
 
-module.exports = { summary, cleanProfile, upsert, remove, setActive, credsFor, test, initial, DEFAULT, REGIONS, load };
+module.exports = { setVault, summary, cleanProfile, upsert, remove, setActive, credsFor, test, initial, DEFAULT, REGIONS, load };

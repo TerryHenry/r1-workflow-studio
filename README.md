@@ -111,6 +111,30 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
     time (tested). The Cloudpath list in the editor has a filter box, and the chart says "N of M read". A crawl never keeps secrets (shared
     passphrases, API keys, OAuth secrets, default passwords): the crawler leaves them out and the editor removes them from any crawl it loads.
 
+## Desktop app (macOS and Windows)
+
+The same studio in its own window, no terminal needed. It runs the studio inside the app and keeps everything you create in its own data folder:
+macOS `~/Library/Application Support/R1 Workflow Studio/data`, Windows `%APPDATA%\R1 Workflow Studio\data` (File > Open data folder). API client
+secrets are stored encrypted with the system's own store (macOS Keychain, Windows data protection), so a saved connection can only be read by you,
+on that computer. First start: with nothing configured it opens Connections, where you add your RUCKUS One tenant and/or read Cloudpath. It uses
+the fixed local port 47871 (so its settings survive restarts; if that is busy it picks another) and can run alongside `node bin/ui.js` (port 8787), but
+the two keep separate data. To move what you already have, copy a `data/` folder into the app's data folder.
+
+Build it (needs Node 18+; Electron is only a development dependency, the studio itself still has none):
+
+```bash
+npm install
+npm run dist:mac      # Apple Silicon: dist-app/R1-Workflow-Studio-<version>-mac-arm64.dmg and .zip
+npm run dist:win      # Windows 64-bit, built from a Mac: installer .exe and .zip (the .exe file itself keeps Electron's icon)
+npm run app           # run it from the source without packaging
+```
+
+For a Windows build with the proper icon and file details, run the "Build desktop apps" workflow on GitHub (Actions tab, Run workflow; a `v*` tag also
+drafts a release with the files). The apps are not code-signed, because that needs paid Apple and Windows certificates, so the first time:
+- macOS: if it says the app can't be opened, right-click it > Open, or run `xattr -dr com.apple.quarantine "/Applications/R1 Workflow Studio.app"`
+  (a build made on your own Mac has no such warning). The first run may ask to let the app use its Keychain item; that is the secret storage.
+- Windows: SmartScreen shows "Windows protected your PC": More info > Run anyway.
+
 ## Step mapping
 | Cloudpath | R1 action | Support |
 |---|---|---|

@@ -1,0 +1,50 @@
+# Builds the desktop apps. Run it from the Actions tab ("Run workflow"), or push a tag like v1.0.0 to also draft a release with the files.
+# The apps are not code-signed (that needs paid Apple and Windows certificates), so macOS and Windows show a one-time warning on first open: see the README.
+name: Build desktop apps
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - run: npm test
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, flag: "--mac", name: mac }
+          - { os: windows-latest, flag: "--win", name: windows }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - run: npx electron-builder ${{ matrix.flag }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: R1-Workflow-Studio-${{ matrix.name }}
+          path: |
+            dist-app/*.dmg
+            dist-app/*.zip
+            dist-app/*.exe
+          if-no-files-found: error
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: files, merge-multiple: true }
+      - run: gh release create "$GITHUB_REF_NAME" files/* --draft --title "R1 Workflow Studio ${GITHUB_REF_NAME#v}" --notes "Unsigned builds: see the README for the one-time warning on first open." --repo "$GITHUB_REPOSITORY"
+        env: { GH_TOKEN: "${{ github.token }}" }

@@ -1166,7 +1166,7 @@ function drawConnections() {
     h("div", { style: "margin-top:6px" }, h("button", { class: "btn small", onclick: stopArm }, "Stop waiting"))));
   const rrows = [];
   if (r.hasDefault) rrows.push(row(r.name === "default", "Default", "From the environment or the Visitor Desk config (as before)", [r.name === "default" ? null : h("button", { class: "btn small", onclick: () => useR1("default") }, "Use")]));
-  for (const p of r.profiles) rrows.push(row(r.name === p.name, p.name, p.region.toUpperCase() + " · tenant " + p.tenantEnd + " · client " + p.clientEnd + (p.delegatedEnd ? " · MSP " + p.delegatedEnd : ""),
+  for (const p of r.profiles) rrows.push(row(r.name === p.name, p.name, p.region.toUpperCase() + " · tenant " + p.tenantEnd + " · client " + p.clientEnd + (p.delegatedEnd ? " · MSP " + p.delegatedEnd : "") + (p.secretUnreadable ? " · secret can't be read here: edit to enter it again" : ""),
     [r.name === p.name ? null : h("button", { class: "btn small", onclick: () => useR1(p.name) }, "Use"), h("button", { class: "btn small", onclick: () => editR1(p) }, "Edit"), r.name === p.name ? null : h("button", { class: "btn small", onclick: () => delR1(p.name) }, "Delete")]));
   rrows.push(row(r.name === "offline", "Offline", "No connection: build and look, but no previews or applies", [r.name === "offline" ? null : h("button", { class: "btn small", onclick: () => useR1("offline") }, "Use")]));
   const F = CV.form, ed = F && F.edit;
@@ -1246,6 +1246,8 @@ $("#btnUndo").addEventListener("click", undo); $("#btnRedo").addEventListener("c
     S.connName = st.connection.name; S.cpInfo = st.cloudpathInfo;
     Object.assign(S, { schema: st.schema, inv: st.inventory, cloudpath: st.cloudpath, drafts: st.drafts, samples: st.samples, blank: st.blank, live: st.live, tplFields: st.templateFields, blankTpl: st.blankTemplate, guestFields: st.guestFields, blankGuest: st.blankGuest, logicFields: st.logicFields, logicOps: st.logicOps, lookColors: st.lookColors, defaultLook: st.defaultLook });
     S.wf = null; renderAll();
+    // First start with no RUCKUS One connection (a fresh install): open Connections once, so adding a tenant is the first thing offered.
+    if (!st.connection.live && !store.get("seenConnections", "")) { store.set("seenConnections", "1"); openConnections(); }
   } catch (e) { $("#flow").append(h("p", { style: "color:var(--bad)" }, "Could not load: " + e.message)); }
 })();
 </script>

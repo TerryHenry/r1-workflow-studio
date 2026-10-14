@@ -156,3 +156,51 @@ test("reading options go into the crawler script, and every Cloudpath entry arri
     assert.ok(st.cloudpath.find((w) => w.name === "personalPassphrase")._issues >= 0);
   } finally { await s.close(); }
 });
+
+test("secrets at rest: with the operating system's store they are written encrypted, without it as before", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "c2r-vault-"));
+  const file = path.join(root, "data", "connections.json");
+  try {
+    conns.upsert(root, conns.cleanProfile(root, profile({ name: "Plain" })));
+    assert.ok(fs.readFileSync(file, "utf8").includes(SECRET), "without a vault the secret is in the owner-only file");
+    // the desktop app gives a vault (stand-in: reversible, and it records what it sealed)
+    const sealed = [];
+    conns.setVault({ seal: (s) => { sealed.push(s); return Buffer.from("vault:" + s.split("").reverse().join("")).toString("base64"); }, open: (b) => Buffer.from(b, "base64").toString().replace(/^vault:/, "").split("").reverse().join("") });
+    assert.equal(conns.credsFor(root, "Plain").clientSecret, SECRET, "an older plain secret still works");
+    conns.upsert(root, conns.cleanProfile(root, profile({ name: "Sealed", clientSecret: "another-secret-value-99" })));
+    conns.upsert(root, conns.cleanProfile(root, { name: "Plain", delegatedTenantId: "" }));        // saving again seals the old one too
+    const raw = fs.readFileSync(file, "utf8");
+    assert.ok(!raw.includes(SECRET) && !raw.includes("another-secret-value-99"), "no secret in the file");
+    assert.equal(conns.credsFor(root, "Sealed").clientSecret, "another-secret-value-99"); assert.equal(conns.credsFor(root, "Plain").clientSecret, SECRET);
+    assert.ok(!JSON.stringify(conns.summary(root)).includes("another-secret"), "the page never sees one");
+    assert.equal(conns.summary(root).profiles.find((p) => p.name === "Sealed").hasSecret, true);
+    // another computer or user cannot open them: clear message, nothing crashes
+    conns.setVault({ seal: (s) => s, open: () => { throw new Error("wrong key"); } });
+    const sum = conns.summary(root); assert.equal(sum.profiles.find((p) => p.name === "Sealed").secretUnreadable, true); assert.equal(sum.profiles.find((p) => p.name === "Sealed").hasSecret, false);
+    assert.throws(() => conns.credsFor(root, "Sealed"), (e) => e.status === 409 && /enter the client secret again/.test(e.message));
+    conns.setVault(null);
+    assert.throws(() => conns.credsFor(root, "Sealed"), (e) => e.status === 409);
+  } finally { conns.setVault(null); }
+});
+
+test("data lives in its own folder, apart from the program's files (the desktop app keeps it in the app-data folder)", async () => {
+  const { startStudio } = require("../src/studio");
+  const program = fs.mkdtempSync(path.join(os.tmpdir(), "c2r-prog-")), data = fs.mkdtempSync(path.join(os.tmpdir(), "c2r-data-"));
+  fs.cpSync(path.join(__dirname, "..", "ui"), path.join(program, "ui"), { recursive: true });
+  for (const d of ["crawl"]) fs.cpSync(path.join(__dirname, "..", d), path.join(program, d), { recursive: true });
+  const s = await startStudio({ root: program, dataRoot: data, port: 0, offline: true });
+  try {
+    assert.ok(s.port > 0 && !s.client && s.connection === "offline");
+    const get = (p) => new Promise((resolve) => http.get({ host: "127.0.0.1", port: s.port, path: p }, (res) => { let d = ""; res.on("data", (c) => (d += c)); res.on("end", () => resolve({ status: res.statusCode, text: d })); }));
+    assert.equal((await get("/")).status, 200, "the page is served from the program folder");
+    const token = /const TOKEN = "([0-9a-f]+)"/.exec((await get("/")).text)[1];
+    const post = (p, body) => new Promise((resolve) => { const r = http.request({ host: "127.0.0.1", port: s.port, path: p, method: "POST", headers: { "content-type": "application/json", "x-ui-token": token } }, (res) => { let d = ""; res.on("data", (c) => (d += c)); res.on("end", () => resolve(res.statusCode)); }); r.end(JSON.stringify(body)); });
+    assert.equal(await post("/api/connections/cloudpath/load", { text: JSON.stringify({ source: "https://x.example.com", workflows: [{ name: "w", steps: [] }] }) }), 200);
+    assert.ok(fs.existsSync(path.join(data, "data", "crawl.json")), "the crawl is saved in the data folder");
+    assert.ok(!fs.existsSync(path.join(program, "data")), "and nothing is written next to the program");
+  } finally { await s.close(); }
+  // a busy preferred port falls back to a free one
+  const blocker = http.createServer(); await new Promise((r) => blocker.listen(0, "127.0.0.1", r));
+  const s2 = await startStudio({ root: program, dataRoot: data, port: blocker.address().port, offline: true });
+  try { assert.notEqual(s2.port, blocker.address().port); assert.ok(s2.port > 0); } finally { await s2.close(); await new Promise((r) => blocker.close(r)); }
+});

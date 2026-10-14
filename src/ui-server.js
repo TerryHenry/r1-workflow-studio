@@ -26,7 +26,7 @@ const { startCrawlJob, publicJob } = require("./crawl-job");
 
 const NAME = /^[\w .()-]{1,80}$/;
 
-function createUiServer({ client: startClient = null, crawl: startCrawl = null, mapping: startMapping = {}, root = path.join(__dirname, ".."), log = () => {}, pollMs, makeClient = require("./r1").client, connection = "", cloudpathFetch = fetch } = {}) {
+function createUiServer({ client: startClient = null, crawl: startCrawl = null, mapping: startMapping = {}, root = path.join(__dirname, ".."), dataRoot = root, log = () => {}, pollMs, makeClient = require("./r1").client, connection = "", cloudpathFetch = fetch } = {}) {
   const token = crypto.randomBytes(24).toString("hex");
   // What the editor is connected to can change while it runs (Connections dialog): the RUCKUS One tenant and the Cloudpath crawl.
   let client = startClient, crawl = startCrawl, mapping = startMapping;
@@ -34,7 +34,7 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
   let applying = 0, arm = null, crawlStamp = 0, job = null;
   const previews = new Map();                                 // hash -> time
   let inv = null;
-  const draftsDir = path.join(root, "data", "drafts");
+  const draftsDir = path.join(dataRoot, "data", "drafts");
   const getInv = async (force) => (inv && !force ? inv : (inv = await loadInventory(client)));
   const hashOf = (body) => crypto.createHash("sha256").update(JSON.stringify({ w: body.workflow, o: body.options || {} })).digest("hex");
   const opts = (o = {}) => ({ prefix: String(o.prefix || "").slice(0, 20), venueId: o.venueId ? String(o.venueId) : undefined });
@@ -118,52 +118,52 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
   }
   const needClient = () => { if (!client) throw httpError(409, "Not connected to RUCKUS One (started with --offline)."); };
 
-  function setCrawl(j) { crawls.validateCrawl(j); j = crawls.redact(j).crawl; if (crawl) crawls.saveCrawl(root, crawl); crawls.activate(root, j); crawl = j; crawlStamp++; }   // what was loaded is kept before it is replaced
+  function setCrawl(j) { crawls.validateCrawl(j); j = crawls.redact(j).crawl; if (crawl) crawls.saveCrawl(dataRoot, crawl); crawls.activate(dataRoot, j); crawl = j; crawlStamp++; }   // what was loaded is kept before it is replaced
   function connectionsState() {
-    const s = conns.summary(root);
+    const s = conns.summary(dataRoot);
     return {
       r1: { name: connName, live: !!client, hasDefault: s.hasDefault, profiles: s.profiles, regions: s.regions },
-      cloudpath: { active: crawls.activeInfo(root, crawl), saved: crawls.listSaved(root), armed: !!(arm && arm.until > Date.now()), stamp: crawlStamp, job: publicJob(job) },
+      cloudpath: { active: crawls.activeInfo(dataRoot, crawl), saved: crawls.listSaved(dataRoot), armed: !!(arm && arm.until > Date.now()), stamp: crawlStamp, job: publicJob(job) },
     };
   }
 
   const routes = {
     "GET /api/state": async () => ({
       schema: ACTIONS, templateFields: TEMPLATE_FIELDS, blankTemplate: blankTemplate(), guestFields: GUEST_FIELDS, blankGuest: blankGuestNetwork(), lookColors: LOOK_COLORS, defaultLook: DEFAULT_LOOK, logicFields: LOGIC_FIELDS, logicOps: LOGIC_OPS, inventory: await getInv(), live: !!client, hasCloudpath: !!crawl,
-      cloudpath: await cloudpathModels(), connection: { live: !!client, name: connName }, cloudpathInfo: crawls.activeInfo(root, crawl), drafts: listDrafts(), blank: blankWorkflow(), samples: samples(),
+      cloudpath: await cloudpathModels(), connection: { live: !!client, name: connName }, cloudpathInfo: crawls.activeInfo(dataRoot, crawl), drafts: listDrafts(), blank: blankWorkflow(), samples: samples(),
     }),
     "GET /api/connections": async () => connectionsState(),
-    "PUT /api/connections/r1": async (b) => { conns.upsert(root, conns.cleanProfile(root, b.profile)); return connectionsState(); },
+    "PUT /api/connections/r1": async (b) => { conns.upsert(dataRoot, conns.cleanProfile(dataRoot, b.profile)); return connectionsState(); },
     "POST /api/connections/r1/delete": async (b) => {
       const name = String(b.name || "");
       if (name === connName) throw httpError(409, "That's the connection in use. Switch to another one first.");
-      conns.remove(root, name); return connectionsState();
+      conns.remove(dataRoot, name); return connectionsState();
     },
     "POST /api/connections/r1/test": async (b) => {
-      const creds = b.profile ? (({ name, ...p }) => p)(conns.cleanProfile(root, { ...b.profile, name: String(b.profile.name || "test connection") })) : conns.credsFor(root, String(b.name || ""));
+      const creds = b.profile ? (({ name, ...p }) => p)(conns.cleanProfile(dataRoot, { ...b.profile, name: String(b.profile.name || "test connection") })) : conns.credsFor(dataRoot, String(b.name || ""));
       try { return await conns.test(makeClient, creds); } catch (e) { throw httpError(400, "Could not sign in: " + e.message); }
     },
     "POST /api/connections/r1/use": async (b) => {
       const name = String(b.name || "");
       if (applying) throw httpError(409, "An apply is running. Wait for it to finish.");
-      if (name === "offline") { client = null; connName = "offline"; conns.setActive(root, "offline"); }
+      if (name === "offline") { client = null; connName = "offline"; conns.setActive(dataRoot, "offline"); }
       else {
         let c;
-        try { const creds = conns.credsFor(root, name); c = makeClient(creds); await conns.test(() => c, creds); }
+        try { const creds = conns.credsFor(dataRoot, name); c = makeClient(creds); await conns.test(() => c, creds); }
         catch (e) { throw httpError(e.status || 400, "Could not connect: " + e.message); }
         client = c; connName = name;
-        conns.setActive(root, name);
+        conns.setActive(dataRoot, name);
       }
       inv = null; previews.clear(); mapping = {};                     // nothing previewed against another tenant can be applied here
       log("connected to: " + connName);
       return connectionsState();
     },
-    "POST /api/connections/cloudpath/use": async (b) => { setCrawl(crawls.loadSaved(root, String(b.file || ""))); return connectionsState(); },
+    "POST /api/connections/cloudpath/use": async (b) => { setCrawl(crawls.loadSaved(dataRoot, String(b.file || ""))); return connectionsState(); },
     "POST /api/connections/cloudpath/load": async (b) => {
       let j; try { j = JSON.parse(String(b.text || "")); } catch { throw httpError(400, "That isn't a crawl file: it isn't valid JSON."); }
       setCrawl(j); return connectionsState();
     },
-    "POST /api/connections/cloudpath/delete": async (b) => { crawls.deleteSaved(root, String(b.file || "")); return connectionsState(); },
+    "POST /api/connections/cloudpath/delete": async (b) => { crawls.deleteSaved(dataRoot, String(b.file || "")); return connectionsState(); },
     // The editor signs in to Cloudpath itself (address, email, password typed in the editor), reads, and signs out. The password is never stored.
     "POST /api/connections/cloudpath/crawl": async (b) => {
       if (job && (job.state === "starting" || job.state === "running")) throw httpError(409, "A Cloudpath read is already running.");
@@ -220,7 +220,7 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
       if (b.hash !== h || !previews.has(h)) throw httpError(409, "Preview this exact guest network first. It has changed since the last preview, or was never previewed.");
       const r = await runGuest(b.guest, b.options, true);
       previews.delete(h);
-      if (r.created && r.created.length) appendCreated(root, r.created);
+      if (r.created && r.created.length) appendCreated(dataRoot, r.created);
       await getInv(true);
       return r;
     },
@@ -237,7 +237,7 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
       if (b.hash !== h || !previews.has(h)) throw httpError(409, "Preview this exact template first. It has changed since the last preview, or was never previewed.");
       const r = await runTemplate(b.template, b.options, true);
       previews.delete(h);
-      if (r.created && r.created.length) appendCreated(root, r.created);
+      if (r.created && r.created.length) appendCreated(dataRoot, r.created);
       await getInv(true);
       return r;
     },
@@ -258,7 +258,7 @@ function createUiServer({ client: startClient = null, crawl: startCrawl = null, 
       if (b.hash !== h || !previews.has(h)) throw httpError(409, "Preview this exact workflow first. It has changed since the last preview, or was never previewed.");
       const r = await run(b.workflow, b.options, true);
       previews.delete(h);
-      if (r.created && r.created.length) appendCreated(root, r.created);
+      if (r.created && r.created.length) appendCreated(dataRoot, r.created);
       await getInv(true);
       return r;
     },
