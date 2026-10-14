@@ -31,3 +31,12 @@ test("samples: every path can be walked in Try it", () => {
     }
   }
 });
+
+test("a split with more than 10 branches is an error (R1 refuses the 11th)", () => {
+  const wf = { name: "big", steps: [m.newNode("LOGICAL_SPLIT", "many")] };
+  const sp = wf.steps[0];
+  sp.options = Array.from({ length: 11 }, (_, i) => ({ ...m.newOption("b" + i), conditions: [{ variable: "CP_DEVICE_OS", operation: "CONTAINS", value: "x" + i }], steps: [] }));
+  assert.ok(m.validate(wf, inv).some((i) => /at most 10/.test(i.message)));
+  sp.options.length = 10;
+  assert.ok(!m.validate(wf, inv).some((i) => /at most 10/.test(i.message)));
+});

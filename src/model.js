@@ -272,6 +272,8 @@ function guestFromPlan(cpWf) {
 // (R1 itself does not validate variable names, so any other name can still be typed in the editor.)
 // Variable names and labels read from the R1 GUI's Logical Split dialog (workflow a test workflow, 2026-10-13). The dialog also offers the fields of
 // an earlier form step ("Display a Form"); how those are stored isn't known here, so they are not offered.
+// Confirmed live 2026-10-13: an 11th option gets 409 "Exceeded maximum number of split options allowed"; 10 works.
+const MAX_SPLIT_OPTIONS = 10;
 const LOGIC_FIELDS = [["CP_DEVICE_TYPE", "Device type"], ["CP_DEVICE_OS", "Device OS"], ["CP_BROWSER_NAME", "Browser name"], ["CP_LANGUAGE", "Language"], ["CP_PORTAL_SSID", "Captive portal SSID"],
   ["CP_VENUE_NAME", "Venue name"], ["CP_AP_GROUP_NAME", "AP group"], ["CP_DEVICE_MAC", "Device MAC address"], ["CP_DEVICE_IP", "Device IP address"]];
 // Comparisons R1 accepts (from R1's own error message for an unknown one, 2026-10-13). "IS" / "IS_NOT" sit beside EQUALS /
@@ -421,6 +423,7 @@ function validate(wf, inv = {}, opts = {}) {
       }
       if (n.type === "LOGICAL_SPLIT") {
         if (!n.options || !n.options.length) add("error", `"${n.name}": a logical split needs at least one branch.`, n.id);
+        else if (n.options.length > MAX_SPLIT_OPTIONS) add("error", `"${n.name}": R1 allows at most ${MAX_SPLIT_OPTIONS} branches in one split (this has ${n.options.length}).`, n.id);
         else if (n.options.length === 1) add("warn", `"${n.name}": with a single branch, visitors who don't match its conditions have no path. Add another branch.`, n.id);
         const seen = new Set();
         for (const o of n.options || []) {
@@ -439,6 +442,7 @@ function validate(wf, inv = {}, opts = {}) {
       }
       if (n.type === "USER_SELECTION_SPLIT") {
         if (!n.options || n.options.length < 2) add("error", `"${n.name}": a choice needs at least two options.`, n.id);
+        else if (n.options.length > MAX_SPLIT_OPTIONS) add("error", `"${n.name}": R1 allows at most ${MAX_SPLIT_OPTIONS} options in one split (this has ${n.options.length}).`, n.id);
         const seen = new Set();
         for (const o of n.options || []) {
           if (!String(o.name || "").trim()) add("error", `"${n.name}": an option has no name.`, n.id);
