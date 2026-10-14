@@ -133,7 +133,7 @@ Set the welcome title, colours, font and logo or background image the visitor's 
 
 ![Problems](images/06-problems.png)
 
-Anything that would stop RUCKUS One accepting the workflow is listed here (and the red number in the top bar counts them). Click a problem to jump to the step. In the sample above, the two sign-in steps need a **directory server profile id**: that profile lives in your RUCKUS One tenant, so only you can supply it.
+Anything that would stop RUCKUS One accepting the workflow is listed here (and the red number in the top bar counts them). Click a problem to jump to the step. In the sample above, the two sign-in steps need a **directory server profile**: that profile lives in your RUCKUS One tenant, so only you can choose it (or fill in its details to create one).
 
 ### Try it as a visitor
 
