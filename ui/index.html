@@ -950,7 +950,16 @@ async function openFile(file) {
   if (!file) return;
   if (file.size > 11e6) { alert("That file is too big."); return; }
   try {
-    const r = await api("/api/file/import", { text: await file.text(), fileName: file.name });
+    const text = await file.text();
+    // A crawl.json from the Cloudpath crawler (not one of this tool's workflow files): read it as the Cloudpath crawl.
+    let j = null; try { j = JSON.parse(text); } catch {}
+    if (j && Array.isArray(j.workflows) && j.format !== "cloudpath-to-r1" && !Array.isArray(j.steps)) {
+      if (S.dirty && !confirm("Discard the changes to what you have open?")) return;
+      C = await api("/api/connections/cloudpath/load", { text }); await reloadAfter("cp");
+      CV = { msg: { text: "Loaded " + C.cloudpath.active.workflows + " workflows from " + (C.cloudpath.active.source || "the crawl file") + ". They are in the From Cloudpath list." }, arm: null, form: null, testNote: null, focus: "cloudpath" };
+      clearInterval(cpoll); cpoll = null; drawConnections(); return;
+    }
+    const r = await api("/api/file/import", { text, fileName: file.name });
     if (r.kind === "workflow") await openWorkflow(r.model, "f:" + file.name, r.warnings);
     else await openObject(r.model, "f:" + file.name, r.warnings);
   } catch (e) { alert("Could not open that file: " + e.message); }
@@ -1100,7 +1109,7 @@ function drawConnections() {
     h("ol", { style: "margin:6px 0 6px 18px;padding:0" },
       h("li", {}, "Open the Cloudpath admin page in your browser and sign in as the user you want to read as."),
       h("li", {}, "Press ", h("button", { class: "btn small", onclick: (e) => copyText(CV.arm.script, e.target) }, "Copy the crawler"), ", then paste it into that tab's console (developer tools, Console) and press Enter. It only reads."),
-      h("li", {}, "It reports back here by itself. If Cloudpath's security policy blocks that, it downloads a crawl.json instead: use Load a crawl file…")),
+      h("li", {}, "It reports back here by itself. Many Cloudpath pages block that: the console then shows a “Content Security Policy” error, which is expected, and the script downloads crawl.json instead. Drop that file anywhere on this page, or use Load a crawl file…")),
     h("textarea", { id: "crawlScript", readonly: true, rows: 3, style: "font-family:monospace;font-size:11px" }, CV.arm.script),
     h("div", { style: "margin-top:6px" }, h("button", { class: "btn small", onclick: stopArm }, "Stop waiting"))));
   const rrows = [];

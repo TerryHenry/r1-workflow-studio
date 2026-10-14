@@ -151,6 +151,6 @@
     return "sent " + body.length + " bytes to receiver: " + r.status;
   } catch (e) {
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([body], { type: "application/json" })); a.download = "crawl.json"; a.click();
-    return "receiver not reachable (" + e + "); downloaded crawl.json instead";
+    return "Could not send the crawl to the editor (" + e + "). That is normal when the Cloudpath page blocks connections to other addresses. It was downloaded as crawl.json instead: drop that file on the editor page, or use Connections > Load a crawl file.";
   }
 })();
