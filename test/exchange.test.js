@@ -218,3 +218,54 @@ test("a credentials step says which user source it uses: Cloudpath's internal da
   const cov = coverage({ workflows: [wf], objects: {} }, {});
   assert.equal(cov.rows.find((r) => r.id === "credprompt-onboard").count, 1); assert.equal(cov.rows.find((r) => r.id === "credprompt").count, 1);
 });
+
+test("sponsor requests, voucher entry, device name and notifications are converted, not 'unknown'", () => {
+  const { convertAll } = require("../src/convert");
+  const { fromPlan, guestFromPlan, voucherOnly, validateGuestNetwork, validate } = require("../src/model");
+  const step = (kind, fields, label = kind, links = []) => ({ kind, number: "1", label, links, fields });
+  // sponsor request -> host approval guest network
+  const req = { pk: 1, name: "Sponsor", steps: [step("aup", { name: "A" }), step("req", { name: "Ask", sponsorType: "Dropdown List", availableSponsors: "a@example.org; b@Example.com; c@example.org", defaultAccessDays: "1", maxAccessDays: "7" }, "Request access from sponsor using Ask."), step("output", {}, "Move user to Net.")] };
+  assert.equal(voucherOnly(req), true);
+  const g = guestFromPlan(req);
+  assert.equal(g.guest.guestNetworkType, "HostApproval");
+  assert.deepEqual(g.guest.hostDomains, ["example.org", "example.com"]); assert.deepEqual(g.guest.hostDurationChoices, ["24", "168"]);
+  assert.deepEqual(validateGuestNetwork(g.guest, inv, {}).filter((i) => !/Terms/i.test(i.message)), []);
+  assert.ok(g.notes.some((n) => /anyone at example\.org, example\.com can approve/.test(n)));
+  const regex = guestFromPlan({ pk: 2, name: "R", steps: [step("oobreq", { sponsorType: "Text Entry", defaultSponsorEmail: "@example.org", sponsorRegex: ".*@example.org", defaultAccessDays: "1" })] });
+  assert.deepEqual(regex.guest.hostDomains, ["example.org"]);
+  // voucher entry (otp) is a guest pass, like oob
+  const otp = { pk: 3, name: "Voucher", steps: [step("aup", {}), step("otp", { promptText: "Enter the voucher from the club house" }, "Prompt the user for a voucher from Club House List."), step("output", {}, "Move user to Net.")] };
+  assert.equal(voucherOnly(otp), true); const go = guestFromPlan(otp);
+  assert.equal(go.guest.guestNetworkType, "GuestPass"); assert.match(go.guest.welcomeMessage, /club house/); assert.ok(go.notes[0].includes("Club House List"));
+  assert.equal(voucherOnly({ steps: [step("aup", {}), step("dpsk", {}), step("otp", {})] }), false, "a voucher next to a DPSK step is not the whole workflow");
+  // a sponsor branch inside a choice moves out, like a voucher branch
+  const mixed = { pk: 4, name: "Mixed", steps: [step("selection", { name: "Who" }, "Who", []), ] };
+  mixed.steps[0].options = [{ name: "Guests", steps: [step("oobreq", { sponsorType: "Static", defaultSponsorEmail: "x@y.com" }), step("output", {}, "Move user to N.")] }, { name: "Staff", steps: [step("dpsk", { accountDpskPoolPk: "P", name: "d" })] }, { name: "Other", steps: [step("dpsk", { accountDpskPoolPk: "P", name: "d2" })] }];
+  const mm = fromPlan(convertAll({ workflows: [mixed], objects: {} }, {}).workflows[0], inv, {});
+  assert.equal(mm.steps[0].options.length, 2); assert.ok(mm.source.notes.some((n) => /voucher or sponsor sign-in/.test(n)));
+  // device name prompt
+  const dn = convertAll({ workflows: [{ pk: 5, name: "D", steps: [step("deviceName", { name: "Name it", title: "What are you using" }, "Prompt the user to name their device and remove old devices.", [{ text: "x", href: "x", tooltip: "Device Name Prompt\nName it\nMaximum Devices: 3\n" }])] }], objects: {} }, {}).workflows[0].steps[0];
+  assert.equal(dn.support, "auto"); assert.equal(dn.r1.actionType, "DATA_PROMPT"); assert.equal(dn.r1.variables[0].label, "Device name"); assert.match(dn.notes[0], /3 devices/); assert.match(dn.notes[0], /Devices per passphrase/);
+  // notifications: to the user after a DPSK step -> the DPSK step's switches; to an administrator, or with no DPSK step -> explained placeholder
+  const note = (m, data) => step("notification", { name: "N", notificationMethod: m, notificationMethodData: data || "" }, "Send a notification using N.");
+  const dpsk = step("dpsk", { accountDpskPoolPk: "Pool", name: "Give" });
+  const n1 = fromPlan(convertAll({ workflows: [{ pk: 6, name: "N1", steps: [dpsk, step("output", {}, "Move user to Net."), note("Send user an email and SMS.")] }], objects: {} }, {}).workflows[0], inv, {});
+  assert.deepEqual(n1.steps.map((s) => s.type), ["DPSK"]); assert.equal(n1.steps[0].params.emailNotification, true); assert.equal(n1.steps[0].params.smsNotification, true);
+  assert.ok(n1.source.notes.some((n) => /became the “Email the passphrase” and “Text the passphrase” switch/.test(n)));
+  const n2 = fromPlan(convertAll({ workflows: [{ pk: 7, name: "N2", steps: [dpsk, note("Send administrator an email.", "boss@example.com")] }], objects: {} }, {}).workflows[0], inv, {});
+  assert.deepEqual(n2.steps.map((s) => s.type), ["DPSK", "UNSUPPORTED"]); assert.match(n2.steps[1].source.notes[0], /boss@example\.com/); assert.match(n2.steps[1].source.notes[0], /no step that notifies an administrator/);
+  const n3 = fromPlan(convertAll({ workflows: [{ pk: 8, name: "N3", steps: [note("Send user an SMS.")] }], objects: {} }, {}).workflows[0], inv, {});
+  assert.equal(n3.steps[0].type, "UNSUPPORTED"); assert.ok(validate(n3, inv).some((i) => /no R1 equivalent/.test(i.message)));
+});
+
+test("every step type the converter knows has a row in the chart (none falls back to 'unknown')", () => {
+  const { convertAll } = require("../src/convert");
+  const kinds = ["aup", "dpsk", "selection", "registration", "output", "oob", "otp", "req", "oobreq", "credprompt", "concurrent", "message", "dataPrompt", "redirect", "oauth", "ss", "notification", "deviceName"];
+  const wf = { pk: 1, name: "All", steps: kinds.map((k) => ({ kind: k, number: "1", label: k === "output" ? "Assign a device configuration and/or certificate." : k, links: [], fields: k === "output" ? {} : { name: k }, ...(k === "selection" ? { options: [] } : {}) })) };
+  const cov = coverage({ workflows: [wf], objects: {} }, {});
+  assert.deepEqual(cov.rows.filter((r) => /^unknown:/.test(r.id)).map((r) => r.id), []);
+  const counted = cov.rows.filter((r) => r.group === "Workflow steps").reduce((a, r) => a + (r.count || 0), 0);
+  assert.equal(counted, kinds.length);
+  const sum = cov.totals.converts + cov.totals.mapping + cov.totals.partial + cov.totals.none; assert.equal(sum, kinds.length);
+  assert.equal(convertAll({ workflows: [wf], objects: {} }, {}).workflows[0].steps.filter((s) => /not known/.test((s.notes || []).join(" "))).length, 0);
+});

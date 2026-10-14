@@ -26,6 +26,14 @@ const CATALOG = [
     note: "R1's path simply ends after the DPSK or MAC step. Whether the visitor stays on the workflow network or joins the pool's SSID depends on your networks (unconfirmed)." },
   { id: "oob", group: "Workflow steps", cloudpath: "Voucher or verification code", r1: "Guest network (guest pass), not a step", status: "converts", evidence: "live",
     note: "Automatic: a voucher and guest pass are the same thing. A workflow that is only a voucher sign-in opens as a ready guest network; a voucher branch inside a choice moves out of the workflow into a companion guest network. Not copied: the voucher lists (pre-made codes), and any certificate Cloudpath assigned after the voucher." },
+  { id: "otp", group: "Workflow steps", cloudpath: "Prompt for a voucher from a sponsor", r1: "Guest network (guest pass), not a step", status: "converts", evidence: "live",
+    note: "Same as the voucher above: the visitor entering a voucher is a guest pass, converted automatically to a guest network. The voucher list isn't copied." },
+  { id: "sponsor", group: "Workflow steps", cloudpath: "Request access from a sponsor", r1: "Guest network with host approval, not a step", status: "converts", evidence: "docs",
+    note: "Converted automatically to a guest network of type host approval. R1 lists host email domains, not individual sponsors, so anyone at those domains can approve; Cloudpath's default and maximum access days become the hours a host can approve. The request form's settings and email template aren't copied. Host approval isn't tried live yet." },
+  { id: "devicename", group: "Workflow steps", cloudpath: "Prompt the user to name their device (and limit devices)", r1: "Prompt for information", status: "partial", evidence: "docs",
+    note: "Only the name prompt converts, as a form field. The device limit and removing old devices have no R1 step: set 'Devices per passphrase' on the DPSK pool." },
+  { id: "notification", group: "Workflow steps", cloudpath: "Send a notification (email or SMS)", r1: "DPSK step's email / text switches", status: "partial", evidence: "docs",
+    note: "A notification to the user after a DPSK step turns on R1's 'Email the passphrase' / 'Text the passphrase' and is dropped (R1 writes its own message). A notice to an administrator, or one not after a DPSK step, has no R1 equivalent." },
   { id: "message", group: "Workflow steps", cloudpath: "Display a message", r1: "Show a message", status: "converts", evidence: "live",
     note: "Title, text, button labels and whether to end the session carry over. Cloudpath variables in the text (e.g. $DPSK) are not filled in by R1; the DPSK or certificate step shows the credential itself." },
   { id: "dataprompt", group: "Workflow steps", cloudpath: "Prompt for information (form)", r1: "Prompt for information", status: "converts", evidence: "docs",
@@ -82,7 +90,7 @@ function rowId(n) {
   if (k === "selection") return t === "FUNCTIONAL_SPLIT" ? "selection-rules" : "selection-open";
   if (k === "output") return !n.r1 ? "output-end" : t === "CERT_TEMPLATE" ? "output-cert" : "output-network";
   if (k === "credprompt") return n.ref && n.ref.userSource === "onboard" ? "credprompt-onboard" : "credprompt";
-  return { aup: "aup", dpsk: "dpsk", registration: "mac", oob: "oob", credprompt: "credprompt", concurrent: "concurrent", message: "message", dataPrompt: "dataprompt", redirect: "redirect", oauth: "oauth", ss: "ss" }[k] || ("unknown:" + k);
+  return { aup: "aup", otp: "otp", req: "sponsor", oobreq: "sponsor", deviceName: "devicename", notification: "notification", dpsk: "dpsk", registration: "mac", oob: "oob", credprompt: "credprompt", concurrent: "concurrent", message: "message", dataPrompt: "dataprompt", redirect: "redirect", oauth: "oauth", ss: "ss" }[k] || ("unknown:" + k);
 }
 
 function coverage(crawl, mapping = {}, now = new Date()) {

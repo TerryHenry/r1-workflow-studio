@@ -174,6 +174,37 @@ function credprompt(step) {
   return { support: "manual", notes, action: null, ref: { userSource: internal ? "onboard" : "directory", server, serverType: type, host } };
 }
 
+// "Prompt the user for a voucher" (otp) and "Request access from a sponsor" (req, oobreq) are guest passes in R1: a guest network, not a step.
+const GUEST_NOTE = "The editor converts this automatically to an R1 guest network (a workflow that is only this opens as one; a branch that has one moves out to one). ";
+const otp = (step) => ({ support: "manual", action: null, ref: { voucherList: (String(step.label || "").match(/voucher from (.+?)\.*$/i) || [])[1] || "" },
+  notes: [GUEST_NOTE + "Cloudpath asks the visitor for a voucher a sponsor gave them; in R1 terms that is a guest pass (a guest network of type guest pass, where passes are made by sponsors, the guest API or Visitor Desk). The voucher list itself is not copied."] });
+function sponsor(step) {
+  const f = step.fields || {};
+  const who = val(f, "availableSponsors") || val(f, "defaultSponsorEmail") || val(f, "sponsorRegex");
+  return { support: "manual", action: null, ref: { sponsors: who },
+    notes: [GUEST_NOTE + "Cloudpath lets the visitor ask a sponsor" + (who ? " (" + trunc(who, 80) + ")" : "") + " for access. R1's guest network has a “host approval” type for that: a host whose email is on a listed domain approves the visitor for a number of hours. R1 lists domains, not individual sponsors, so anyone at those domains can approve."] };
+}
+
+// "Send a notification": email or SMS to the user or to an administrator.
+function notification(step) {
+  const f = step.fields || {}, method = val(f, "notificationMethod"), admin = /administrator/i.test(method);
+  const email = /e-?mail/i.test(method), sms = /sms/i.test(method);
+  return { support: "manual", action: null, ref: { notify: { admin, email, sms } },
+    notes: admin
+      ? ["Cloudpath emails an administrator" + (val(f, "notificationMethodData") ? " (" + val(f, "notificationMethodData") + ")" : "") + " when someone onboards. R1 has no step that notifies an administrator."]
+      : ["Cloudpath sends the user " + [email && "an email", sms && "an SMS"].filter(Boolean).join(" and ") + " (the text is Cloudpath's, with variables such as $DPSK). R1's DPSK step has “Email the passphrase” and “Text the passphrase” switches: when this step follows a DPSK step the editor turns them on and drops this step (R1 sends its own message). Otherwise nothing carries over."] };
+}
+
+// "Prompt the user to name their device and remove old devices": a name field and a device limit.
+function deviceName(step) {
+  const f = step.fields || {}, max = ((step.links || []).map((l) => String(l.tooltip || "")).join("\n").match(/Maximum Devices:\s*(\d+)/) || [])[1];
+  const text = val(f, "messageHtml") || val(f, "firstDeviceMessageHtml");
+  return { support: "auto", ref: { maxDevices: max ? Number(max) : null },
+    notes: ["Only the device name prompt converts: it becomes a form asking for a device name." + (max ? " Cloudpath also limits each user to " + max + " devices and lets them remove old ones: R1 has no such step. Set the limit as “Devices per passphrase” on the DPSK pool (or in the MAC registration)." : " Cloudpath's device limit and removing old devices have no R1 step: use the device limit on the DPSK pool.")],
+    action: { actionType: "DATA_PROMPT", name: trunc(val(f, "name") || "Device name", 100), title: trunc(noVars(val(f, "title")) || "Name your device", 100), messageHtml: text ? trunc(text, 1000) : undefined,
+      displayTitle: true, displayMessageHtml: !!text, variables: [{ label: "Device name", type: "INPUT_FIELD_1" }] } };
+}
+
 // Cloudpath fills ${VARIABLE} / $VARIABLE in message text (e.g. $DPSK); R1 messages are fixed text.
 const VAR = /\$\{[^}]+\}|\$[A-Z][A-Z0-9_]+/g;
 
@@ -217,7 +248,7 @@ function redirect(step) {
 
 const RULES = {
   aup, dpsk, selection, registration, output,
-  message, dataPrompt, redirect,
+  message, dataPrompt, redirect, otp, req: sponsor, oobreq: sponsor, notification, deviceName,
   oauth: manual("Cloudpath signs the visitor in with a social account (Google, Facebook, LinkedIn or a custom OAuth provider). R1's identity provider step uses a SAML or OIDC provider set up in R1, which is not the same thing: there is no direct equivalent, and the provider keys were not copied."),
   ss: manual("Cloudpath asks the visitor for a shared passphrase. R1 has no step that checks one. A shared passphrase on a Wi-Fi network is a PSK network (or a DPSK pool for personal ones). The passphrase itself was not copied."),
   oob: manual("The editor converts this automatically to an R1 guest network (a workflow that is only a voucher sign-in opens as one; a voucher branch inside a choice moves out to one). Cloudpath sends a voucher code by email or SMS and the visitor enters it: in R1 terms that is a guest pass. The R1 workflow action list has no guest-pass action (DATA_PROMPT only collects email/phone), so this part moves to an R1 guest network of type GuestPass (passes made by sponsors, the guest API, or bulk import) rather than a workflow step. The AUP becomes the network's terms text, the SMS/email choice becomes the pass delivery methods. See README 'Guest networks'."),

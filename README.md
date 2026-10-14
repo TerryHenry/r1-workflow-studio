@@ -119,6 +119,12 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
 | output after DPSK / MAC | end of path | auto |
 | output (other) | PASSPHRASE | needs network mapping, verify |
 | oob (voucher / verification code) | an R1 guest network (a guest pass is the same thing; R1 has no voucher step). A workflow that is only a voucher sign-in opens as a guest network automatically; a voucher branch inside a choice is moved out of the workflow into a companion guest network, with a note | auto |
+| otp (prompt for a voucher from a sponsor) | same as oob: an R1 guest network (guest pass) | auto |
+| req, oobreq (request access from a sponsor) | an R1 guest network of type host approval: sponsor emails become host domains (anyone at those domains can approve), default and maximum access days become the hours a host can approve. Not tried live yet | auto |
+| deviceName (name the device, device limit) | a form asking for a device name; the device limit has no R1 step (use "Devices per passphrase" on the DPSK pool) | auto, in part |
+| notification (email / SMS) | to the user after a DPSK step: the DPSK step's "Email / Text the passphrase" switches (the step is dropped); to an administrator, or not after a DPSK step: none | auto, in part / manual |
+| message, dataPrompt | Show a message; Prompt for information (a password field can't carry over) | auto |
+| redirect, oauth, ss | none (explained in the step's notes) | manual |
 | credprompt, concurrent | none | manual |
 
 R1 specs: https://docs.ruckus.cloud/api (Workflow Management API 0.0.4, Workflow Actions API 0.0.2).

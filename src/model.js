@@ -248,27 +248,43 @@ function guestNetworkBody(g, prefix = "") {
 
 // A Cloudpath workflow that verifies a voucher code (oob step) is, in R1, a guest network where visitors sign in with a pass.
 // `cpWf` is the raw crawled Cloudpath workflow. Returns { guest, notes }, or null when it has no voucher step.
+// Cloudpath steps that are a guest pass in R1: a voucher (oob, otp) or a request to a sponsor (req, oobreq).
+const GUEST_KINDS = ["oob", "otp", "req", "oobreq"];
 const guestNameFor = (wfName) => `${wfName} guest network`.slice(0, 100);
 // A workflow that is nothing but a voucher sign-in (policy, voucher, hand-over): the whole thing is one R1 guest network.
 function voucherOnly(cpWf) {
   const top = (cpWf && cpWf.steps) || [];
-  return top.some((s) => s.kind === "oob") && top.every((s) => ["aup", "oob", "output", "concurrent"].includes(s.kind));
+  return top.some((s) => GUEST_KINDS.includes(s.kind)) && top.every((s) => ["aup", "message", ...GUEST_KINDS, "output", "concurrent"].includes(s.kind));
 }
 function guestFromPlan(cpWf) {
   const planWf = cpWf, found = {};
-  (function walk(nodes) { for (const n of nodes || []) { if (n.kind === "aup" && !found.aup) found.aup = n; if (n.kind === "oob" && !found.oob) found.oob = n; for (const o of n.options || []) walk(o.steps); } })(cpWf.steps);
-  if (!found.oob) return null;
+  (function walk(nodes) { for (const n of nodes || []) { if (n.kind === "aup" && !found.aup) found.aup = n; if (GUEST_KINDS.includes(n.kind) && !found.step) found.step = n; for (const o of n.options || []) walk(o.steps); } })(cpWf.steps);
+  if (!found.step) return null;
   const val = (n, key) => { const v = n && n.fields && n.fields[key]; return v == null ? "" : typeof v === "object" ? (v.default || v.text || "") : String(v); };
   const slug = String(planWf.name).replace(/[^\w -]/g, "").trim().slice(0, 24) || "workflow";
+  const sponsorRequest = found.step.kind === "req" || found.step.kind === "oobreq";
   const g = blankGuestNetwork();
-  Object.assign(g, { name: guestNameFor(planWf.name), ssid: `${slug}-guest`.slice(0, 32), description: `Converted from the Cloudpath workflow "${planWf.name}" (voucher sign-in)`, title: "Welcome", welcomeMessage: "Enter the code you were given" });
+  Object.assign(g, { name: guestNameFor(planWf.name), ssid: `${slug}-guest`.slice(0, 32), description: `Converted from the Cloudpath workflow "${planWf.name}" (${sponsorRequest ? "sponsor approval" : "voucher sign-in"})`.slice(0, 256),
+    title: String(val(found.step, "title") || "Welcome").slice(0, 100), welcomeMessage: String(val(found.step, "promptText") || (sponsorRequest ? "Ask a host to approve your visit" : "Enter the code you were given")).replace(/<[^>]+>/g, "").slice(0, 100) });
   const notes = [];
-  const lists = [val(found.oob, "otpListPk"), val(found.oob, "alternateOtpListPks")].filter(Boolean);
-  const sms = val(found.oob, "allowSms") === "1", mail = val(found.oob, "allowEmail") === "1";
-  notes.push("Cloudpath checks a voucher code the visitor enters" + (lists.length ? " (voucher list: " + lists.join(", ") + ")" : "") + ". In R1 that is a guest-pass network: visitors enter their pass on the portal page.");
-  if (sms || mail) notes.push("Cloudpath could send the code by " + [sms && "SMS", mail && "email"].filter(Boolean).join(" or ") + ". In R1 the delivery method is chosen when each pass is created (by a sponsor, the guest API or Visitor Desk).");
+  if (sponsorRequest) {
+    g.guestNetworkType = "HostApproval";
+    const who = [val(found.step, "availableSponsors"), val(found.step, "defaultSponsorEmail"), val(found.step, "sponsorRegex")].join(";");
+    g.hostDomains = [...new Set((who.match(/@([\w.-]+\.[A-Za-z]{2,})/g) || []).map((x) => x.slice(1).toLowerCase()))];
+    const days = [val(found.step, "defaultAccessDays"), val(found.step, "maxAccessDays")].map(Number).filter((x) => x > 0);
+    g.hostDurationChoices = [...new Set(days.map((d) => String(d * 24)))]; if (!g.hostDurationChoices.length) g.hostDurationChoices = ["24"];
+    notes.push("Cloudpath lets the visitor ask a sponsor for access" + (who.replace(/;/g, "").trim() ? " (" + who.split(";").filter(Boolean).join("; ").slice(0, 120) + ")" : "") + ". In R1 that is a guest network with host approval: a host whose email is on one of the listed domains approves the visitor.");
+    notes.push(g.hostDomains.length ? "R1 lists host email domains, not individual sponsors, so anyone at " + g.hostDomains.join(", ") + " can approve. Check that list." : "No sponsor email domain could be read: add the host email domains.");
+    notes.push("Access time: Cloudpath's default " + (val(found.step, "defaultAccessDays") || "?") + " day(s), at most " + (val(found.step, "maxAccessDays") || "?") + ". R1 offers the hours in “Hours a host can approve”: " + g.hostDurationChoices.join(", ") + ".");
+    notes.push("Cloudpath's request form (which fields to show, captcha, the email template) is R1's own on a guest network; those settings are not carried over.");
+  } else {
+    const lists = [val(found.step, "otpListPk"), val(found.step, "alternateOtpListPks"), (String(found.step.label || "").match(/voucher from (.+?)\.*$/i) || [])[1]].filter(Boolean);
+    const sms = val(found.step, "allowSms") === "1", mail = val(found.step, "allowEmail") === "1";
+    notes.push("Cloudpath checks a voucher code the visitor enters" + (lists.length ? " (voucher list: " + lists.join(", ") + ")" : "") + ". In R1 that is a guest-pass network: visitors enter their pass on the portal page.");
+    if (sms || mail) notes.push("Cloudpath could send the code by " + [sms && "SMS", mail && "email"].filter(Boolean).join(" or ") + ". In R1 the delivery method is chosen when each pass is created (by a sponsor, the guest API or Visitor Desk).");
+    notes.push("Cloudpath's voucher lists (the pre-made codes) are not copied; passes are created in R1.");
+  }
   if (found.aup) notes.push("The acceptable use policy step becomes the portal page's terms: paste your policy text into “Terms and conditions”.");
-  notes.push("Cloudpath's voucher lists (the pre-made codes) are not copied; passes are created in R1.");
   notes.push("A new SSID is needed: R1 does not allow two networks with the same name. Cloudpath moved visitors to a second network afterwards; a guest network is the network visitors stay on.");
   return { guest: g, notes };
 }
@@ -315,7 +331,7 @@ const find = (list, name) => (list || []).find((x) => lc(x.name) === lc(name));
 // planWf: a workflow from convertAll(); inv: tenant inventory (see ui-server); objects: crawl.objects.
 function fromPlan(planWf, inv, objects) {
   const movedNotes = [], guestName = guestNameFor(planWf.name);
-  const voucherBranch = (o) => (o.steps || []).some((x) => x.cloudpath && x.cloudpath.kind === "oob");
+  const voucherBranch = (o) => (o.steps || []).some((x) => x.cloudpath && GUEST_KINDS.includes(x.cloudpath.kind));
   const convert = (nodes) => {
     const out = [];
     for (let n of nodes || []) {
@@ -324,13 +340,22 @@ function fromPlan(planWf, inv, objects) {
         const moved = n.options.filter(voucherBranch), kept = n.options.filter((o) => !voucherBranch(o));
         const cert = moved.flatMap((o) => o.steps || []).find((x) => x.r1 && x.r1.actionType === "CERT_TEMPLATE");
         const names = moved.map((o) => "“" + o.name.replace(/\.{3}$/, "") + "”").join(", ");
-        movedNotes.push(`The branch ${names} (voucher sign-in) is not in this workflow: R1 workflows have no voucher step, so it became the guest network “${guestName}”, which is listed next to this workflow.` +
+        movedNotes.push(`The branch ${names} (voucher or sponsor sign-in) is not in this workflow: R1 workflows have no such step, so it became the guest network “${guestName}”, which is listed next to this workflow.` +
           (cert ? ` After the voucher Cloudpath also assigned the certificate “${(cert.ref && cert.ref.template) || cert.cloudpath.name}”: a guest network can't issue certificates, so that part is not converted.` : ""));
         if (!kept.length) continue;
         if (kept.length === 1) { movedNotes.push(`The choice “${(n.cloudpath && (n.cloudpath.name || n.cloudpath.label)) || "User type"}” was left with one option (“${kept[0].name.replace(/\.{3}$/, "")}”), so its steps now run directly.`); out.push(...convert(kept[0].steps)); continue; }
         n = { ...n, options: kept };
       }
       const cp = n.cloudpath || {};
+      if (cp.kind === "notification" && n.ref && n.ref.notify && !n.ref.notify.admin && (n.ref.notify.email || n.ref.notify.sms)) {
+        const dpsk = [...out].reverse().find((x) => x.type === "DPSK");           // the user is told by R1's own DPSK email / text switches
+        if (dpsk) {
+          if (n.ref.notify.email) dpsk.params.emailNotification = true;
+          if (n.ref.notify.sms) dpsk.params.smsNotification = true;
+          movedNotes.push(`The notification “${cp.name || cp.label}” (${[n.ref.notify.email && "email", n.ref.notify.sms && "SMS"].filter(Boolean).join(" and ")} to the user) became the ${[n.ref.notify.email && "“Email the passphrase”", n.ref.notify.sms && "“Text the passphrase”"].filter(Boolean).join(" and ")} switch on the DPSK step “${dpsk.name}”. R1 sends its own message text.`);
+          continue;
+        }
+      }
       const src = { cloudpathKind: cp.kind, cloudpathName: cp.name || cp.label, notes: n.notes || [], ...(n.ref && n.ref.userSource ? { userSource: n.ref.userSource } : {}) };
       if (!n.r1 && n.end) continue;                               // "(end)" results: the path ends by itself
       const t = n.r1 && n.r1.actionType;
@@ -615,4 +640,4 @@ function sniffImage(buf) {
   if (head.startsWith("<svg") || (head.startsWith("<?xml") && head.includes("<svg"))) return "image/svg+xml";
   return null;
 }
-module.exports = { voucherOnly, guestNameFor, freeName, ruleToConditions, regexToComparison, lookFromCloudpath, LOGIC_FIELDS, LOGIC_OPS, newCondition, guestFromPlan, sniffImage, LOOK_COLORS, DEFAULT_LOOK, validateLook, lookParts, GUEST_FIELDS, GUEST_TYPES, blankGuestNetwork, validateGuestNetwork, guestNetworkBody, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, createMissing, ACTIONS, PLACEHOLDER, ONBOARD, newNode, newOption, blankWorkflow, fromPlan, validate, toBuildWorkflow, toBuildNodes, outline, everyBranchOnboards, visible, uid };
+module.exports = { GUEST_KINDS, voucherOnly, guestNameFor, freeName, ruleToConditions, regexToComparison, lookFromCloudpath, LOGIC_FIELDS, LOGIC_OPS, newCondition, guestFromPlan, sniffImage, LOOK_COLORS, DEFAULT_LOOK, validateLook, lookParts, GUEST_FIELDS, GUEST_TYPES, blankGuestNetwork, validateGuestNetwork, guestNetworkBody, TEMPLATE_FIELDS, blankTemplate, validateTemplate, templateRef, createMissing, ACTIONS, PLACEHOLDER, ONBOARD, newNode, newOption, blankWorkflow, fromPlan, validate, toBuildWorkflow, toBuildNodes, outline, everyBranchOnboards, visible, uid };
