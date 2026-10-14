@@ -17,6 +17,8 @@ const { ACTIONS, fromPlan, validate, toBuildWorkflow, blankWorkflow, createMissi
 const { importWorkflow, importCertTemplate, importGuestNetwork } = require("./r1import");
 const { appendCreated } = require("./ledger");
 const { samples } = require("./samples");
+const { exportFile, importFile } = require("./exchange");
+const coverageMod = require("./coverage");
 
 const NAME = /^[\w .()-]{1,80}$/;
 
@@ -102,6 +104,8 @@ function createUiServer({ client = null, crawl = null, mapping = {}, root = path
       schema: ACTIONS, templateFields: TEMPLATE_FIELDS, blankTemplate: blankTemplate(), guestFields: GUEST_FIELDS, blankGuest: blankGuestNetwork(), lookColors: LOOK_COLORS, defaultLook: DEFAULT_LOOK, logicFields: LOGIC_FIELDS, logicOps: LOGIC_OPS, inventory: await getInv(), live: !!client, hasCloudpath: !!crawl,
       cloudpath: await cloudpathModels(), drafts: listDrafts(), blank: blankWorkflow(), samples: samples(),
     }),
+    "POST /api/file/export": async (b) => exportFile(b.model),
+    "POST /api/file/import": async (b) => importFile(b.text, String(b.fileName || "").slice(0, 200)),
     "POST /api/refresh": async () => ({ inventory: await getInv(true) }),
     "POST /api/validate": async (b) => ({ issues: validate(b.workflow, await getInv(), opts(b.options)) }),
     "POST /api/import/workflow": async (b) => {
@@ -212,6 +216,12 @@ function createUiServer({ client = null, crawl = null, mapping = {}, root = path
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store",
           "content-security-policy": "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" });
         return res.end(html);
+      }
+      if (req.method === "GET" && (url.pathname === "/coverage" || url.pathname === "/coverage.csv")) {
+        const data = coverageMod.coverage(crawl, mapping);
+        if (url.pathname === "/coverage.csv") { res.writeHead(200, { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="cloudpath-vs-r1.csv"', "cache-control": "no-store", "x-content-type-options": "nosniff" }); return res.end(coverageMod.csv(data)); }
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" });
+        return res.end(coverageMod.html(data, { csvHref: "/coverage.csv" }));
       }
       const key = `${req.method} ${url.pathname}`;
       const handler = routes[key];

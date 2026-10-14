@@ -68,6 +68,19 @@ branches, End) and lets you change it before anything reaches RUCKUS One:
   (LDAP sign-in, a DPSK pool each, one-day guest passphrase, custom look), employee (LDAP) or guest (DPSK), and computers vs phones
   (a logical split by device type: Desktop gets a certificate, Mobile gets a passphrase). They open as editable copies. Only an LDAP directory profile id and a certificate authority
   are left for you to fill in. Defined in `src/samples.js`.
+- **Export file / Open a file…**: save whatever is open (a workflow, certificate template or guest network) to a `.json` file, and open it
+  again later, on another computer, or after sending it to someone. Dropping a file on the page opens it too. A file is never trusted:
+  only known step types and fields are kept, ids are made fresh, sizes are capped, unknown step types become red placeholders, and the
+  result goes through the same Problems check, preview and typed confirmation as anything else. Steps that point at R1 objects (DPSK pools,
+  templates, ...) do so by id, which only means something in the tenant the file came from: the editor warns and flags the ones that
+  don't exist where you are. Drafts saved by the editor open as files too. Format: `{ format: "cloudpath-to-r1", version: 1, kind, name,
+  exportedAt, data }` (`src/exchange.js`).
+- **Cloudpath vs R1 chart** (left list, or `node bin/coverage.js`, which writes `data/cloudpath-vs-r1.html` and `.csv`): what is in a
+  Cloudpath workflow, what it becomes in RUCKUS One and what can't be converted. Counts come from your crawl (steps per type, objects, how
+  many rule-based branches convert completely), with a bar per workflow, and each row says whether it converts automatically, after you
+  choose or create an R1 object, only in part, or not at all, plus how sure we are (confirmed live, from the docs, assumed, or not crawled).
+  Cloudpath areas the crawler doesn't read (authentication servers, notification templates, data, integrations) are listed as "not read"
+  rather than guessed. The catalog is in `src/coverage.js`: update it when the tool learns to convert something new.
 
 ## Step mapping
 | Cloudpath | R1 action | Support |

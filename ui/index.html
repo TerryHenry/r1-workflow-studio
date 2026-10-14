@@ -146,6 +146,8 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4p
   <button class="btn icon" id="btnTheme" title="Theme: automatic, light, dark" aria-label="Theme">◐</button>
   <span class="sep"></span>
   <button class="btn" id="btnSave">Save draft</button>
+  <button class="btn" id="btnExport" title="Save what is open to a file you can keep, share or open again">Export file</button>
+  <input type="file" id="fileIn" accept=".json,application/json" hidden>
   <button class="btn" id="btnPreview">Preview</button>
   <button class="btn primary" id="btnApply" disabled>Apply…</button>
 </header>
@@ -281,7 +283,7 @@ function renderHeader() {
   const fresh = S.preview && S.previewKey === key() && !S.preview.error && !S.preview.issues.some((i) => i.level === "error");
   $("#btnApply").disabled = !(fresh && S.live);
   $("#btnApply").title = !S.live ? "Not connected to RUCKUS One" : fresh ? "Create this in RUCKUS One" : "Preview this exact workflow first";
-  $("#btnPreview").disabled = !cur0; $("#btnSave").disabled = !cur0;
+  $("#btnPreview").disabled = !cur0; $("#btnSave").disabled = !cur0; $("#btnExport").disabled = !cur0;
   $("#btnUndo").disabled = !!S.obj || !H.undo.length; $("#btnRedo").disabled = !!S.obj || !H.redo.length;
   $("#btnCompact").style.borderColor = document.documentElement.classList.contains("compact") ? "var(--accent)" : "";
   const th = store.get("theme", "auto"); $("#btnTheme").textContent = th === "light" ? "☀" : th === "dark" ? "☾" : "◐";
@@ -290,7 +292,7 @@ function renderHeader() {
 function renderLeft() {
   const L = $("#left"); L.replaceChildren();
   L.append(h("h2", {}, "Start"));
-  L.append(h("div", { class: "list" }, h("button", { onclick: () => openWorkflow(clone(S.blank), "new") }, "＋ New blank workflow"), h("button", { onclick: () => openObject(clone(S.blankTpl), "new") }, "＋ New certificate template"), h("button", { onclick: () => openObject(clone(S.blankGuest), "new") }, "＋ New guest network")));
+  L.append(h("div", { class: "list" }, h("button", { onclick: () => openWorkflow(clone(S.blank), "new") }, "＋ New blank workflow"), h("button", { onclick: () => openObject(clone(S.blankTpl), "new") }, "＋ New certificate template"), h("button", { onclick: () => openObject(clone(S.blankGuest), "new") }, "＋ New guest network"), h("button", { onclick: () => $("#fileIn").click(), title: "Open a workflow, certificate template or guest network that was saved to a file (Export file)" }, "📂 Open a file…"), h("button", { onclick: () => window.open("/coverage", "_blank", "noopener"), title: "A chart of what is in Cloudpath, what it becomes in RUCKUS One, and what can't be converted" }, "📊 Cloudpath vs R1 chart")));
   if (S.cloudpath.length) {
     L.append(h("h2", {}, "From Cloudpath"));
     L.append(h("div", { class: "list" }, S.cloudpath.map((w) => h("button", { class: S.source === "cp:" + w.name ? "on" : "", onclick: () => openWorkflow(clone(w), "cp:" + w.name) }, h("span", {}, w.name),
@@ -919,6 +921,23 @@ async function saveDraft() {
   const name = prompt("Save draft as:", (S.obj || S.wf).name); if (!name) return;
   try { S.drafts = (await api("/api/drafts", { name, workflow: S.obj || S.wf }, "PUT")).drafts; S.dirty = false; S.source = "d:" + name; renderLeft(); } catch (e) { alert(e.message); }
 }
+async function openFile(file) {
+  if (!file) return;
+  if (file.size > 11e6) { alert("That file is too big."); return; }
+  try {
+    const r = await api("/api/file/import", { text: await file.text(), fileName: file.name });
+    if (r.kind === "workflow") await openWorkflow(r.model, "f:" + file.name, r.warnings);
+    else await openObject(r.model, "f:" + file.name, r.warnings);
+  } catch (e) { alert("Could not open that file: " + e.message); }
+}
+async function exportFile() {
+  const model = S.obj || S.wf; if (!model) { alert("Open or start something first."); return; }
+  try {
+    const r = await api("/api/file/export", { model });
+    const a = h("a", { href: URL.createObjectURL(new Blob([r.text], { type: "application/json" })), download: r.filename });
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  } catch (e) { alert("Could not export: " + e.message); }
+}
 async function refreshInv() { S.inv = (await api("/api/refresh", {})).inventory; renderAll(); validate(); }
 
 async function doPreview() {
@@ -998,6 +1017,10 @@ $("#venue").addEventListener("change", () => { renderHeader(); if (S.tab === "pr
 $("#btnPreview").addEventListener("click", doPreview);
 $("#btnApply").addEventListener("click", doApply);
 $("#btnSave").addEventListener("click", saveDraft);
+$("#btnExport").addEventListener("click", exportFile);
+$("#fileIn").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; openFile(f); });
+addEventListener("dragover", (e) => { if ([...(e.dataTransfer ? e.dataTransfer.types : [])].includes("Files")) e.preventDefault(); });
+addEventListener("drop", (e) => { const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) { e.preventDefault(); openFile(f); } });
 $("#btnUndo").addEventListener("click", undo); $("#btnRedo").addEventListener("click", redo);
 (async function init() {
   try {

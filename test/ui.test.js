@@ -630,3 +630,22 @@ test("Cloudpath rule-based splits open in the editor as logical splits with thei
   assert.match(split.source.notes[0], /rules/);
   assert.ok(validate(wf, inv).some((i) => /needs at least one condition/.test(i.message) && /Anything else|Pick/.test(i.message)));
 });
+
+test("file import/export routes and the coverage page", async () => {
+  const s = await start();
+  try {
+    const wf = goodWorkflow();
+    assert.equal((await s.post("/api/file/export", { model: wf }, "wrong")).status, 403);
+    const ex = (await s.post("/api/file/export", { model: wf })).json();
+    assert.match(ex.filename, /Editor test\.workflow\.json/);
+    const im = (await s.post("/api/file/import", { text: ex.text, fileName: ex.filename })).json();
+    assert.equal(im.kind, "workflow"); assert.equal(im.model.steps.length, 2);
+    const bad = await s.post("/api/file/import", { text: "{nope" });
+    assert.equal(bad.status, 400); assert.match(bad.json().error, /JSON/);
+    const page = await s.call("GET", "/coverage");
+    assert.equal(page.status, 200); assert.match(page.text, /Cloudpath versus RUCKUS One/); assert.ok(!/<script/i.test(page.text));
+    const c = await s.call("GET", "/coverage.csv");
+    assert.equal(c.status, 200); assert.match(c.text, /Cloudpath element/);
+    assert.equal((await s.call("GET", "/coverage", undefined, { host: "evil.example.com" })).status, 403);
+  } finally { await s.close(); }
+});
