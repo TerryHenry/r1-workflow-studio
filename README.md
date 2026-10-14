@@ -1,6 +1,6 @@
 # R1 Workflow Studio
 
-Build RUCKUS One enrollment workflows visually, or read them out of Cloudpath and convert them. (The repository and folder are still called `cloudpath-to-r1`.)
+Build RUCKUS One enrollment workflows visually, or read them out of Cloudpath and convert them.
 
 Start it with `node bin/ui.js` and open http://127.0.0.1:8787. You can design a workflow from scratch, open an existing R1 workflow
 as an editable copy, or read workflows out of a Cloudpath admin UI and convert them. Nothing is sent to RUCKUS One until you preview
