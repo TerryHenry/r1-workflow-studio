@@ -99,7 +99,7 @@ This sample asks visitors who they are. Students and teachers sign in with the s
 | **Give the network's passphrase** | Hands out a network's shared (PSK) passphrase. |
 | **Captive portal redirect** | Sends the visitor on to a web address. |
 | **Sign in with a directory (LDAP)** | Checks credentials against a directory server profile. Pick one that already exists in RUCKUS One, or choose **Create a new profile** and fill in its server address, port, domain and admin account. The admin password is sent to RUCKUS One but never saved in drafts, exported files or logs, so type it again after reopening a draft. |
-| **Sign in with SSO (SAML)** | Checks credentials against an identity provider. |
+| **Sign in with SSO (SAML)** | Checks credentials against an identity provider. Choose one that exists in RUCKUS One, or create one from its metadata address. |
 
 ### The rules RUCKUS One enforces (the Problems tab checks them for you)
 
@@ -114,6 +114,20 @@ Click a step and use the **Step** tab.
 ![Editing a step](images/04-step-editor.png)
 
 For a DPSK step you choose an **existing pool** or **create a new one** (name, passphrase format and length, devices per passphrase, when passphrases expire, and the Wi-Fi networks that go with it). Things that don't exist yet are created for you when you apply, and listed first in the preview.
+
+### Directory (LDAP) and single sign-on steps
+
+**Sign in with a directory (LDAP)** and **Sign in with SSO (SAML)** both need a profile that lives in RUCKUS One. The step lets you choose one that already exists, or create it on the spot.
+
+![Choosing an existing directory server profile](images/25-ldap-existing.png)
+
+With **Use an existing profile** the list is read from your tenant (name only, no secrets). Pick one and you're done.
+
+![Creating a directory server profile](images/26-ldap-new.png)
+
+With **Create a new profile** fill in the name (2 to 32 characters), directory type (Active Directory or LDAP), server address, port (389, or 636 for LDAPS), whether to use TLS, the domain name and the admin account the profile signs in with, then the admin password. The profile is created when you **Apply**, shown in Preview first, and used by the step; Undo removes it again like everything else the studio creates.
+
+The **admin password is never stored by the studio**: it is not in saved drafts, exported files, the Preview list of calls or the log of what was created. It is sent to RUCKUS One once, when you apply, so type it again after reopening a draft. **SSO** works the same way: choose an identity provider, or create one from its metadata address.
 
 ### Logical splits: branching by device
 

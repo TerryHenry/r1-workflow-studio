@@ -6,13 +6,25 @@ Design **RUCKUS One enrollment workflows** visually, or read them out of **Cloud
 
 ![A workflow in R1 Workflow Studio](docs/images/03-sample-workflow.png)
 
-## What it does
+## Highlights
 
-- **Build workflows without code.** Add steps, split visitors by choice or by device, configure DPSK pools, certificates and guest networks, and click through the result as a visitor (**Try it**) before anything exists.
-- **Nothing happens until you say so.** **Preview** shows exactly what would be created; **Apply** needs the workflow's name typed to confirm. It only creates new things (never edits or deletes what's already in RUCKUS One), creates workflows unpublished, and **Undo** removes what it made.
-- **Open what you already have** in RUCKUS One as an editable copy.
-- **Convert Cloudpath.** Enter a Cloudpath address and admin sign-in and it reads every workflow (read-only, password never saved), converts them, explains each step that can't convert, and charts what converts and what doesn't. Vouchers and sponsor requests become guest networks automatically.
-- **Private by design.** Runs only on your computer; API secrets are stored encrypted by the operating system.
+- **Visual builder.** A flow diagram of Start, step cards, side-by-side branches and End. Add, move, duplicate and undo steps; fix anything listed in **Problems** (RUCKUS One's own rules, checked as you go).
+- **Every step type:** acceptable use policy, prompts, messages, visitor choice, **logical split by device** (OS, type, browser), DPSK, MAC registration, certificates, shared passphrase, captive portal, and **directory (LDAP) or SSO sign-in**.
+- **Choose or create.** DPSK pools, MAC lists, certificate templates, **directory server profiles and SAML identity providers** can be picked from your tenant or created from the step. The directory admin password is never saved in drafts, exports or logs.
+- **Try it as a visitor** in a phone-style frame, with your portal look and feel, before anything exists in RUCKUS One.
+- **Safe by design.** **Preview** lists exactly what would be created; **Apply** needs the workflow's name typed to confirm. It only creates new things, leaves workflows unpublished, and **Undo** removes what the studio made.
+- **Convert Cloudpath.** Sign in to a Cloudpath instance (read-only, password never saved), convert every workflow, see what each step becomes (vouchers and sponsor approval become guest networks), and view a **Cloudpath vs R1 chart**.
+- **Open what you already have** in RUCKUS One as an editable copy, plus certificate templates and guest networks as forms.
+- **Private.** Runs on your computer; API secrets are stored encrypted by the operating system.
+
+## See it
+
+| | |
+|---|---|
+| ![Build a workflow](docs/images/03-sample-workflow.png) **Build** visually | ![Branch by device](docs/images/09-logical-split.png) **Branch** by device |
+| ![Directory profiles](docs/images/26-ldap-new.png) **Choose or create** directory profiles | ![Try it](docs/images/08-try-it-choice.png) **Try it** as a visitor |
+| ![Preview](docs/images/10-preview.png) **Preview** exactly what will be created | ![Undo](docs/images/13-undo.png) **Undo** what the studio made |
+| ![Cloudpath list](docs/images/24-cloudpath-list.png) **Read** Cloudpath | ![Chart](docs/images/23-chart.png) **Chart** what converts |
 
 ## Get it
 

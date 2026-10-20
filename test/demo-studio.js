@@ -20,6 +20,7 @@ async function startDemo({ port = 47900, cloudpathDelay = 120 } = {}) {
     groups: [{ id: "g1", name: "Staff" }, { id: "g2", name: "Guests" }],
     nets: [{ id: "n1", name: "Staff-WiFi", ssid: "Staff-WiFi", nwSubType: "dpsk" }, { id: "n2", name: "Guest-WiFi", ssid: "Guest-WiFi", nwSubType: "guest" }],
     cas: [{ id: "ca1", name: "Example Intermediate CA" }], tpls: [{ id: "t1", name: "Staff certificate", identityGroupId: "g1" }],
+    dirs: [{ id: "d1", name: "School directory", host: "ad.school.example", port: 636, type: "AD" }, { id: "d2", name: "Staff LDAP", host: "ldap.example.org", port: 389, type: "LDAP" }], saml: [{ id: "s1", name: "Company SSO" }],
     workflows: [{ id: "w1", name: "Staff onboarding", status: "VALID" }, { id: "w2", name: "Guest self-service", status: "VALID" }, { id: "w3", name: "Contractor access", status: "INVALID" }],
   } });
   conns.upsert(dataRoot, conns.cleanProfile(dataRoot, { name: "Demo tenant", region: "na", tenantId: "demo-tenant-0000-0000", clientId: "demo-client-0000-0000", clientSecret: "demo-secret-not-real" }));

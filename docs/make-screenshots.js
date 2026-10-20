@@ -64,6 +64,12 @@ async function connect(port) {
     await must(await clickText("#left .list button", "School"), "School sample"); await sleep(900);
     await shot("03-sample-workflow");
     await ev("select(S.wf.steps[1].options[0].steps[1].id)"); await shot("04-step-editor");
+    // the LDAP step: choose a profile from RUCKUS One ...
+    const ldapId = "S.wf.steps[1].options[0].steps[0].id";
+    await ev(`select(${ldapId})`); await ev(`(()=>{const n=S.wf.steps[1].options[0].steps[0]; n.params.directoryServerProfileId='d1'; changed(true)})()`); await shot("25-ldap-existing");
+    // ... or create a new one (details only; the password stays empty in the picture)
+    await ev(`(()=>{const n=S.wf.steps[1].options[0].steps[0]; Object.assign(n.params,{mode:'new',newName:'School directory',type:'AD',host:'ad.school.example',port:636,tlsEnabled:true,domainName:'school.example',adminDomainName:'CN=svc-wifi,OU=Service,DC=school,DC=example'}); changed(true)})()`); await shot("26-ldap-new");
+    await ev(`(()=>{const n=S.wf.steps[1].options[0].steps[0]; n.params.mode='existing'; n.params.directoryServerProfileId=''; changed(true)})()`);   // back to the sample's open question for the Problems picture
     await ev("setTab('look')"); await shot("05-look");
     await ev("setTab('problems')"); await shot("06-problems");
     await ev("setTab('try')"); await sleep(600); await shot("07-try-it-start");
